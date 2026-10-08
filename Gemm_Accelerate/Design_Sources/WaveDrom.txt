@@ -1,0 +1,57 @@
+
+// Core compute operation
+{signal: [
+  {name: 'clk',			wave: 'P.................'},
+  {name: 'start',    	wave: '0.10...|.....'},
+  {name: 'running',    	wave: '0..1...|...0.'},																	// output busy == running
+  {name: 'done',    	wave: '0......|...10'},
+  {name: 'k',    		wave: 'x..====|===x.', data: ["0","1","2","3","4","TILE-2","TILE-1"]},					// For fetched A[i][k+1] / B[k+1][i]
+  {name: 'local_b',    	wave: 'x..====|===x.', data: ["C0","C1","C2","C3","C4","C(TILE-2)","C(TILE-1)"]},
+  {name: 'local_a',    	wave: 'x..====|===x.', data: ["R0","R1","R2","R3","R4","R(TILE-2)","R(TILE-1)"]},
+  {name: 'cur_c',    	wave: 'x..====|===x.', data: ["O0","O1","O2","O3","O4","O(TILE-2)","O(TILE-1)"]},
+  {name: 'prev_c',    	wave: 'x..====|====x', data: ["0","O0","O1","O2","O3","O4","O(TILE-2)","O(TILE-1)"]},	// output C = prev_c ; delay 1 clk for output to optimize the critical path for design
+],
+  config: {hscale : 2}
+}
+  
+// Load phase
+{signal: [
+  {name: 'clk',			wave: 'P.....................'},
+  {name: 'start',    	wave: '010.|.................'},
+  {name: 'state',    	wave: '=.=.|.==.|.=|.=|.=..=.', data: ["IDLE","LOAD","WAIT","LOAD","LOAD","LOAD","LOAD","IDLE"]},
+  {name: 'load_done',   wave: '0...|1.0.|10|10.10.10.'},												// Done -> End 1 Tile Load_B
+  {name: 'enable_pass', wave: '0...|.10.|10|10.10.10.'},												// Enable pass to Gemm
+  {name: 'cp_K', 		wave: '=....=.....=|==|==|==.', data: ["0","1","2","K","0","K","0","K","0"]},	// Checkpoint K -> End 1 K-dimension Load
+  {name: 'cp_M', 		wave: '=............=.|==|==.', data: ["0","1","M","0","M","0"]},				// Checkpoint M -> End whole B_Bram load corresponding to N row A_Bram 
+  {name: 'cp_N', 		wave: '=...............=.|==.', data: ["0","1","N","0"]},						// Checkpoint N -> End whole B_Bram compute, ready to load new data to B_Bram
+  {name: 'cp_TILE',    	wave: '=..=|==.=|==..............', data: ["0","1","TILE-1","0","1","TILE-1","0"]},					// Parameter for load Bram into L0 register
+  {name: 'local_b',    	wave: 'x.==|==...............', data: ["R0","R1","R(TILE-1)"]},
+  {name: 'local_a',    	wave: 'x.==|==...............', data: ["R0","R1","R(TILE-1)"]},
+],
+  config: {hscale : 2}
+}
+
+// Write Accumulate phase
+{signal: [
+  {name: 'clk',				wave: 'P....................'},
+  // Internal control operation
+  {name: 'wb_start',    	wave: '0.10...|...10...|....'},
+  {name: 'wb_ready',    	wave: '1..0...|..1.0......1.'},
+  {name: 'k',    			wave: '=..====|===.====|===.', data: ["0","1","2","3","4","TILE-2","TILE-1","0","1","2","3","4","TILE-2","TILE-1","0"]},
+  // Fetch row data of each matrix and plus together
+  {name: 'row_data',    	wave: 'x..====|===x====|===x', data: ["R0","R1","R2","R3","R4","R(TILE-2)","R(TILE-1)","R0","R1","R2","R3","R4","R(TILE-2)","R(TILE-1)"]},
+
+  // Control-Accumulate Register Interface
+  {name: 'new_dotproduct',  wave: '0.10...|.............'},
+  // N: overwrite new value to accumulate ; PL: plus value of new localc and current value inside accumulate
+  {name: 'wb_row_data',    	wave: 'x..====|===x====|===x', data: ["N0","N1","N2","N3","N4","N(TILE-2)","N(TILE-1)","PL0","PL1","PL2","PL3","PL4","PL(TILE-2)","PL(TILE-1)"]}, 
+  {name: 'row_index',    	wave: 'x..====|===x====|===x', data: ["0","1","2","3","4","TILE-2","TILE-1","0","1","2","3","4","TILE-2","TILE-1"]}
+],
+  config: {hscale : 2}
+}
+
+
+Idle -> Load -> Compute -> Write_C_Acc -> Write_C_Bram
+
+
+
