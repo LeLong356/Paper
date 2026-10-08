@@ -8,36 +8,32 @@ module exps_stage (
     logic       sign_bit;
     logic [7:0] exp_in;
     logic [6:0] mant_in;
-
+    logic in_is_nan, in_is_inf;
+    localparam logic [15:0] LOG2E = 16'd23637;
+    logic [7:0]  mant_full;
+    logic [23:0] scaled_mant; // Q2.21
+    logic pre_overflow;
+    logic [23:0] shifted_val;
+    logic [7:0]  shift_right_amount;
+    logic        guard_bit;
+    logic [15:0] rounded_val; // Q8.7
+    logic signed [17:0] bias_s, sel_val_s, biased_val;
+    logic signed [10:0] exp_field_s;
     assign sign_bit = x_in[15];
     assign exp_in   = x_in[14:7];
     assign mant_in  = x_in[6:0];
-    logic in_is_nan, in_is_inf;
     assign in_is_nan = (exp_in == 8'hFF) && (mant_in != 7'd0);
     assign in_is_inf = (exp_in == 8'hFF) && (mant_in == 7'd0);
-    localparam logic [15:0] LOG2E = 16'd23637;
-    logic [7:0]  mant_full;
     assign mant_full = (exp_in == 8'd0) ? 8'd0 : {1'b1, mant_in};
-
-    logic [23:0] scaled_mant; // Q2.21
     assign scaled_mant = mant_full * LOG2E;
-    logic pre_overflow;
     assign pre_overflow = (exp_in > 8'd133);
-
-    logic [7:0]  shift_right_amount;
     assign shift_right_amount = 8'd133 - exp_in;
-
-    logic [23:0] shifted_val;
     assign shifted_val = pre_overflow ? 24'd0 : (scaled_mant >> shift_right_amount);
-    logic        guard_bit;
-    logic [15:0] rounded_val; // Q8.7
     assign guard_bit   = shifted_val[7];
     assign rounded_val = {1'b0, shifted_val[22:8]} + guard_bit;
-    logic signed [17:0] bias_s, sel_val_s, biased_val;
     assign bias_s     = 18'sd16256;
     assign sel_val_s  = sign_bit ? $signed({2'b11, ~rounded_val}) : $signed({2'b00, rounded_val});
     assign biased_val = bias_s + sel_val_s;
-    logic signed [10:0] exp_field_s;
     assign exp_field_s = biased_val[17:7];
 
     assign is_nan  = in_is_nan;
@@ -57,21 +53,19 @@ module px (
     logic       select;
     logic [8:0] x_aligned;
     logic [5:0] x_frac;
-
+    logic [5:0] frac_sel;
+    logic [8:0] ab;
+    logic [8:0] gamma, sum_val;
+    logic [17:0] mul_val, p_temp;
     assign select    = exps_in[6];
     assign x_aligned = {2'b00, exps_in};
     assign x_frac    = exps_in[5:0];
-    logic [5:0] frac_sel;
     assign frac_sel = select ? (~x_frac) : x_frac;
-    logic [8:0] ab;
     assign ab = frac_sel * 3'd7;
-    logic [8:0] gamma, sum_val;
     assign gamma   = select ? GAMMA_2 : GAMMA_1;
     assign sum_val = x_aligned + gamma;
-    logic [17:0] mul_val, p_temp;
     assign mul_val = ab * sum_val;
     assign p_temp  = select ? (mul_val >> 4) : (mul_val >> 5); // beta = 7/16, alpha = 7/32
-
     assign p_out = select ? ~(p_temp[13:7]) : p_temp[13:7];
 endmodule
 
