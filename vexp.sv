@@ -32,7 +32,7 @@ module exps_stage (
     assign guard_bit   = shifted_val[7];
     assign rounded_val = {1'b0, shifted_val[22:8]} + guard_bit;
     assign bias_s     = 18'sd16256;
-    assign sel_val_s  = sign_bit ? $signed({2'b11, ~rounded_val}) : $signed({2'b00, rounded_val});
+    assign sel_val_s  = sign_bit ? -$signed({2'b00, rounded_val}) : $signed({2'b00, rounded_val});
     assign biased_val = bias_s + sel_val_s;
     assign exp_field_s = biased_val[17:7];
 
@@ -88,7 +88,8 @@ module vexp (
         .exps_in  (exps_node[6:0]),
         .p_out    (p_node)
     );
-    assign exp_out = is_nan  ? 16'h7FC0 :
+    assign exp_out = (x_in[14:7] == 8'd0) ? 16'h3F80 :
+                     is_nan  ? 16'h7FC0 :
                      is_inf  ? 16'h7F80 :
                      is_zero ? 16'h0000 :
                                {exps_node[15:7], p_node};
