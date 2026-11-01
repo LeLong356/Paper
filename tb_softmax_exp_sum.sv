@@ -6,6 +6,9 @@ module tb_softmax_exp_sum;
     logic signed [31:0] in_data=0;
     wire ready, in_ready, sum_valid;
     wire [31:0] sum_fp32;
+    logic [11:0] read_index=0;
+    wire [15:0] read_data;
+    reg [15:0] expected_exp[0:2047];
     reg signed [31:0] samples[0:2047];
     reg [31:0] expected;
     integer fd,status,n,cycles,rows=0,elements=0;
@@ -15,7 +18,7 @@ module tb_softmax_exp_sum;
     task reset_dut;
         @(negedge clk); rst_n=0; start=0; in_valid=0;
         #1;
-        if(ready !== 0 || sum_valid !== 0 || in_ready !== 0) $fatal(1,"Reset failed");
+        if(ready !== 0 || sum_valid !== 0 || in_ready !== 0 || read_data !== 0) $fatal(1,"Reset failed");
         @(negedge clk); rst_n=1;
     endtask
     task begin_row(input integer length);
@@ -50,8 +53,8 @@ module tb_softmax_exp_sum;
             status=$fscanf(fd,"%d %h",n,expected);
             if(status==2) begin
                 for(integer i=0;i<n;i=i+1) begin
-                    status=$fscanf(fd,"%h",samples[i]);
-                    if(status!=1) $fatal(1,"Malformed sample");
+                    status=$fscanf(fd,"%h %h",samples[i],expected_exp[i]);
+                    if(status!=2) $fatal(1,"Malformed sample");
                 end
                 begin_row(n);
                 for(integer i=0;i<n;i=i+1) begin
@@ -80,12 +83,23 @@ module tb_softmax_exp_sum;
                 @(negedge clk); start=0; in_valid=0;
                 @(posedge clk); #1;
                 if(sum_valid !== 0 || ready !== 1) $fatal(1,"Bad done pulse or readiness");
+                // Read every stored numerator through the PUBLIC wrapper port.
+                for(integer i=0;i<n;i=i+1) begin
+                    @(negedge clk); read_index=i;
+                    #1;
+                    if(read_data !== expected_exp[i])
+                        $fatal(1,"Row %0d read[%0d]=%h expected %h",rows,i,read_data,expected_exp[i]);
+                end
+                @(negedge clk); read_index=n;
+                #1; if(read_data !== 0) $fatal(1,"Out-of-row read not guarded");
+                @(negedge clk); read_index=2048;
+                #1; if(read_data !== 0) $fatal(1,"Out-of-buffer read not guarded");
                 rows=rows+1; elements=elements+n;
             end else if(!$feof(fd)) $fatal(1,"Malformed header");
         end
         if(rows==0) $fatal(1,"No tests");
         $fclose(fd);
-        $display("PASS: %0d rows, %0d inputs; FP32 sums bit-exact with Python; reset/bubbles/busy-start checks passed",rows,elements);
+        $display("PASS: %0d rows, %0d inputs/readbacks; FP32 sums and BF16 read port match Python; control checks passed",rows,elements);
         $finish;
     end
     initial begin #3000000; $fatal(1,"Timeout"); end

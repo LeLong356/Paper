@@ -6,7 +6,13 @@ module fp32_div_positive (
     output logic out_valid
 );
     typedef enum logic [2:0] {
-        IDLE, UNPACK, NORMALIZE, DIVIDE, ROUND, PACK, COMPLETE
+        IDLE, 
+        UNPACK, 
+        NORMALIZE, 
+        DIVIDE, 
+        ROUND, 
+        PACK, 
+        COMPLETE
     } state_t;
     state_t state, next_state;
     logic [31:0] numerator_reg, denominator_reg, result_reg;

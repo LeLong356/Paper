@@ -9,7 +9,9 @@ module softmax_exp_sum #(
     input logic signed [31:0] in_data,
     output logic in_ready,
     output logic [31:0] sum_fp32,
-    output logic sum_valid
+    output logic sum_valid,
+    input logic [COUNT_WIDTH-1:0] read_index,
+    output logic [15:0] read_data
 );
     logic sum_ready, accepted_start;
     logic [15:0] exp_data;
@@ -48,6 +50,8 @@ module softmax_exp_sum #(
         .exp_valid(exp_valid), 
         .exp_last(exp_last),
         .sum_fp32(sum_fp32), 
-        .sum_valid(sum_valid)
+        .sum_valid(sum_valid),
+        .read_index(read_index),
+        .read_data(read_data)
     );
 endmodule

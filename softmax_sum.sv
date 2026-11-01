@@ -9,7 +9,9 @@ module softmax_sum #(
     input logic exp_valid,
     input logic exp_last,
     output logic [31:0] sum_fp32,
-    output logic sum_valid
+    output logic sum_valid,
+    input logic [COUNT_WIDTH-1:0] read_index,
+    output logic [15:0] read_data
 );
     typedef enum logic [2:0] {
         IDLE, 
@@ -29,6 +31,9 @@ module softmax_sum #(
     assign sum_fp32 = accumulator;
     assign sum_valid = (state == COMPLETE);
     assign ready = (state == IDLE);
+    assign read_data = (rst_n && read_index < MAX_LENGTH &&
+                        read_index < length_reg && read_index < received_count)
+                     ? exp_buffer[read_index] : 16'h0000;
 
     fp32_add_positive u_add (
         .clk(clk), 
