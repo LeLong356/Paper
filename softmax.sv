@@ -8,16 +8,17 @@ module softmax #(
     input logic in_valid,
     input logic signed [31:0] in_data,
     output logic in_ready,
-    output logic [31:0] out_data, // FP32 probability
+    output logic signed [7:0] out_data,
     output logic out_valid,
-    output logic out_last, // High with out_valid for the final element
-    output logic done      // Planned one-cycle pulse in COMPLETE
+    output logic out_last, 
+    output logic done     
 );
     typedef enum logic [2:0] {
         IDLE, 
         WAIT_SUM, 
         DIV_REQUEST, 
         DIV_WAIT, 
+        QUANTIZE_WAIT,
         COMPLETE
     } state_t;
     state_t state, next_state;
@@ -29,6 +30,25 @@ module softmax #(
     logic [15:0] read_data;
     logic [31:0] div_numerator, div_denominator, div_result;
     logic div_in_valid, div_in_ready, div_out_valid;
+    logic [31:0] probability_fp32;
+    logic probability_valid, probability_last;
+
+
+
+    fp32_to_int8 u_quantize (
+        .clk(clk), 
+        .rst_n(rst_n), 
+        .in_valid(probability_valid),
+        .in_data(probability_fp32), 
+        .out_data(out_data), 
+        .out_valid(out_valid)
+    );
+    
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) out_last <= 1'b0;
+        else out_last <= probability_valid && probability_last;
+    end
+    assign done = out_valid && out_last;
 
     assign read_index = div_index;
     assign div_numerator = {read_data, 16'b0}; // BF16 -> FP32
@@ -67,7 +87,6 @@ module softmax #(
         stage_start = 1'b0;
         ready = rst_n && (state == IDLE) && stage_ready;
         div_in_valid = 1'b0;
-        done = (state == COMPLETE);
         case (state)
             IDLE: begin
                 if (start && stage_ready && row_length >= 1 && row_length <= MAX_LENGTH) begin
@@ -89,13 +108,14 @@ module softmax #(
             DIV_WAIT: begin
                 if (div_out_valid) begin
                     if (div_index == length_reg - 1) begin
-                        next_state = COMPLETE;
+                        next_state = QUANTIZE_WAIT;
                     end
                     else begin
                         next_state = DIV_REQUEST;
                     end
                 end
             end
+            QUANTIZE_WAIT: next_state = COMPLETE;
             COMPLETE: begin
                 next_state = IDLE;
             end
@@ -108,13 +128,13 @@ module softmax #(
             state <= IDLE;
             sum_reg <= '0;
             div_index <= '0;
-            out_data <= '0;
-            out_valid <= '0;
-            out_last <= '0;
+            probability_fp32 <= '0;
+            probability_valid <= '0;
+            probability_last <= '0;
         end
         else begin
-            out_valid <= '0;
-            out_last <= '0;
+            probability_valid <= '0;
+            probability_last <= '0;
             state <= next_state;
             case(state)
                 IDLE: begin
@@ -132,13 +152,15 @@ module softmax #(
                 end
                 DIV_WAIT: begin
                     if (div_out_valid) begin
-                        out_data <= div_result;
-                        out_valid <= 1'b1;
-                        out_last <= (div_index == length_reg - 1'b1);
+                        probability_fp32 <= div_result;
+                        probability_valid <= 1'b1;
+                        probability_last <= (div_index == length_reg - 1'b1);
                         if (div_index < length_reg - 1'b1) begin
                             div_index <= div_index + 1'b1;
                         end
                     end
+                end
+                QUANTIZE_WAIT: begin
                 end
                 COMPLETE: begin
                 end
