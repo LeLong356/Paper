@@ -89,7 +89,6 @@ module vexp (
     );
 endmodule
 
-// Shared by the combinational standalone VEXP and its registered stream path.
 module vexp_finish (
     input logic [15:0] exps_node,
     input logic exp_is_zero, is_nan, is_inf, is_zero,
