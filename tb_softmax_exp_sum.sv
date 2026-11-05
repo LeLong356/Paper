@@ -1,20 +1,21 @@
 `timescale 1ns/1ps
 // Run via python3 verify_softmax_exp_sum.py.
 module tb_softmax_exp_sum;
+    localparam int MAX_LENGTH = 32;
     logic clk=0, rst_n=0, start=0, in_valid=0;
-    logic [11:0] row_length=0;
+    logic [$clog2(MAX_LENGTH+1)-1:0] row_length=0;
     logic signed [31:0] in_data=0;
     wire ready, in_ready, sum_valid;
     wire [31:0] sum_fp32;
-    logic [11:0] read_index=0;
+    logic [$clog2(MAX_LENGTH+1)-1:0] read_index=0;
     wire [15:0] read_data;
-    reg [15:0] expected_exp[0:2047];
-    reg signed [31:0] samples[0:2047];
+    reg [15:0] expected_exp[0:MAX_LENGTH-1];
+    reg signed [31:0] samples[0:MAX_LENGTH-1];
     reg [31:0] expected;
     integer fd,status,n,cycles,rows=0,elements=0;
     string path;
     softmax_exp_sum dut(.*);
-    always #5 clk=~clk;
+    always #2.5 clk=~clk; // 5 ns period (200 MHz)
     task reset_dut;
         @(negedge clk); rst_n=0; start=0; in_valid=0;
         #1;
@@ -36,7 +37,7 @@ module tb_softmax_exp_sum;
         @(negedge clk); start=1; row_length=0;
         @(posedge clk); #1;
         if(ready !== 1 || in_ready !== 0) $fatal(1,"Zero length accepted");
-        @(negedge clk); row_length=2049;
+        @(negedge clk); row_length=MAX_LENGTH+1;
         @(posedge clk); #1;
         if(ready !== 1 || in_ready !== 0) $fatal(1,"Oversized row accepted");
         @(negedge clk); start=0;
@@ -73,7 +74,7 @@ module tb_softmax_exp_sum;
                 // Deliberately request another row while busy: it must be ignored.
                 start=1; row_length=1; in_valid=1; in_data=999;
                 cycles=0;
-                while(sum_valid !== 1 && cycles<3*n+10) begin
+                while(sum_valid !== 1 && cycles<10*n+15) begin
                     @(posedge clk); #1; cycles=cycles+1;
                     if(ready !== 0 || in_ready !== 0) $fatal(1,"Accepted row while summing");
                 end
@@ -86,14 +87,14 @@ module tb_softmax_exp_sum;
                 // Read every stored numerator through the PUBLIC wrapper port.
                 for(integer i=0;i<n;i=i+1) begin
                     @(negedge clk); read_index=i;
-                    #1;
+                    @(posedge clk); #1;
                     if(read_data !== expected_exp[i])
                         $fatal(1,"Row %0d read[%0d]=%h expected %h",rows,i,read_data,expected_exp[i]);
                 end
                 @(negedge clk); read_index=n;
-                #1; if(read_data !== 0) $fatal(1,"Out-of-row read not guarded");
-                @(negedge clk); read_index=2048;
-                #1; if(read_data !== 0) $fatal(1,"Out-of-buffer read not guarded");
+                @(posedge clk); #1; if(read_data !== 0) $fatal(1,"Out-of-row read not guarded");
+                @(negedge clk); read_index=MAX_LENGTH;
+                @(posedge clk); #1; if(read_data !== 0) $fatal(1,"Out-of-buffer read not guarded");
                 rows=rows+1; elements=elements+n;
             end else if(!$feof(fd)) $fatal(1,"Malformed header");
         end

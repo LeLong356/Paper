@@ -74,7 +74,6 @@ module vexp (
     output logic [15:0] exp_out
 );
     logic [15:0] exps_node;
-    logic [6:0]  p_node;
     logic        is_nan, is_inf, is_zero;
     exps_stage u_exps (
         .x_in     (x_in),
@@ -84,11 +83,24 @@ module vexp (
         .is_zero  (is_zero)
     );
 
+    vexp_finish u_finish (
+        .exps_node(exps_node), .exp_is_zero(x_in[14:7] == 0),
+        .is_nan(is_nan), .is_inf(is_inf), .is_zero(is_zero), .exp_out(exp_out)
+    );
+endmodule
+
+// Shared by the combinational standalone VEXP and its registered stream path.
+module vexp_finish (
+    input logic [15:0] exps_node,
+    input logic exp_is_zero, is_nan, is_inf, is_zero,
+    output logic [15:0] exp_out
+);
+    logic [6:0] p_node;
     px u_px (
         .exps_in  (exps_node[6:0]),
         .p_out    (p_node)
     );
-    assign exp_out = (x_in[14:7] == 8'd0) ? 16'h3F80 :
+    assign exp_out = exp_is_zero ? 16'h3F80 :
                      is_nan  ? 16'h7FC0 :
                      is_inf  ? 16'h7F80 :
                      is_zero ? 16'h0000 :

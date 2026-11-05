@@ -1,5 +1,5 @@
 module softmax_row_max #(
-    parameter int MAX_LENGTH = 2048,
+    parameter int MAX_LENGTH = 32,
     parameter int COUNT_WIDTH = $clog2(MAX_LENGTH + 1)
 )(
     input  logic clk,
@@ -15,24 +15,42 @@ module softmax_row_max #(
     output logic diff_valid
 );
 
-    typedef enum logic [1:0] {
+    typedef enum logic [2:0] {
         IDLE,
         RECEIVE, 
+        READ_ROW,
         SUBTRACT,
         COMPLETE
     } state_t;
     state_t state, next_state;
-    logic signed [31:0] row_buffer [0:MAX_LENGTH-1];
-    logic signed [32:0] diff_buffer [0:MAX_LENGTH-1];
+    (* ram_style = "block" *) logic signed [31:0] row_buffer [0:MAX_LENGTH-1];
+    logic signed [31:0] row_read_data;
     logic signed [31:0] current_max;
-    logic [COUNT_WIDTH-1:0] length_reg;
+    logic [COUNT_WIDTH-1:0] last_index;
+    localparam int ADDR_WIDTH = MAX_LENGTH > 1 ? $clog2(MAX_LENGTH) : 1;
+    logic [ADDR_WIDTH-1:0] read_addr;
     logic [COUNT_WIDTH-1:0] received_count;
     logic [COUNT_WIDTH-1:0] subtract_count;
+
+    wire read_row = state == READ_ROW ||
+                    (state == SUBTRACT && subtract_count != last_index);
+    always_ff @(posedge clk) begin
+        if (state == RECEIVE)
+            read_addr <= '0;
+        else if (read_row)
+            read_addr <= read_addr + 1'b1;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && in_valid && in_ready)
+            row_buffer[ADDR_WIDTH'(received_count)] <= in_data;
+        if (read_row)
+            row_read_data <= row_buffer[read_addr];
+    end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state <= IDLE;
-            length_reg <= '0;
+            last_index <= '0;
             received_count <= '0;
             current_max <= '0;
             subtract_count <= '0;
@@ -44,33 +62,32 @@ module softmax_row_max #(
             diff_valid <= 1'b0;
             case (state)
                 IDLE: begin
-                    length_reg <= '0;
+                    last_index <= '0;
                     received_count <= '0;
                     current_max <= '0;
                     subtract_count <= '0;
                     if (start && row_length >= 1 && row_length <= MAX_LENGTH)
-                        length_reg <= row_length;
+                        last_index <= row_length - 1'b1;
                 end
                 RECEIVE: begin
                     if (in_valid && in_ready) begin
-                        row_buffer[received_count] <= in_data;
                         received_count <= received_count + 1'b1;
                         if (received_count == 0 || in_data > current_max)
                             current_max <= in_data;
                     end
                 end
+                READ_ROW: begin end
                 SUBTRACT: begin
-                    diff_buffer[subtract_count] <= $signed({row_buffer[subtract_count][31], row_buffer[subtract_count]}) - $signed({current_max[31], current_max});
-                    diff_data <= $signed({row_buffer[subtract_count][31], row_buffer[subtract_count]}) - $signed({current_max[31], current_max});
+                    diff_data <= $signed({row_read_data[31], row_read_data}) - $signed({current_max[31], current_max});
                     diff_valid <= 1'b1;
-                    if (subtract_count < length_reg - 1'b1) begin
+                    if (subtract_count != last_index) begin
                         subtract_count <= subtract_count + 1'b1;
                     end
                 end
                 COMPLETE: begin
                 end
                 default: begin
-                    length_reg <= '0;
+                    last_index <= '0;
                     received_count <= '0;
                     current_max <= '0;
                 end
@@ -89,11 +106,12 @@ module softmax_row_max #(
                     next_state = RECEIVE;
             end
             RECEIVE: begin
-                if (in_valid && in_ready && received_count == length_reg - 1'b1)
-                    next_state = SUBTRACT;
+                if (in_valid && in_ready && received_count == last_index)
+                    next_state = READ_ROW;
             end
+            READ_ROW: next_state = SUBTRACT;
             SUBTRACT: begin
-                if (subtract_count == length_reg - 1'b1) begin
+                if (subtract_count == last_index) begin
                     next_state = COMPLETE;
                 end
             end

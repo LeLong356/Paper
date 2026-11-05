@@ -5,64 +5,99 @@ module fp32_add_positive (
     output logic [31:0] result,
     output logic out_valid
 );
-    logic [31:0] result_next;
-    logic [26:0] mant_a, mant_b, aligned_a, aligned_b, normalized;
-    logic [27:0] sum_ext;
-    logic [24:0] rounded;
-    integer exp_a, exp_b, common_exp;
-    function automatic [26:0] shift_sticky(input logic [26:0] value, input integer amount);
+    logic [4:0] valid_pipe;
+    logic [31:0] a_q, b_q;
+    logic [7:0] exp_a, exp_b, shift_q, exp_q, aligned_exp;
+    logic [26:0] mant_a, mant_b, big_q, small_q, big_aligned, small_aligned;
+    logic [27:0] sum_q;
+    logic [7:0] sum_exp;
+    logic [26:0] normalized;
+    logic [24:0] rounded_q;
+    logic [8:0] round_exp, final_exp;
+    logic [22:0] final_frac;
+
+    typedef enum logic [1:0] {
+        FINITE, 
+        INF, 
+        INVALID} kind_t;
+    kind_t prep_kind, align_kind, sum_kind, round_kind;
+
+    function automatic logic [26:0] shift_sticky(input logic [26:0] value,
+                                                  input logic [7:0] amount);
         logic [26:0] shifted;
-        logic sticky;
-        begin
-            shifted = value >> amount;
-            sticky = 1'b0;
-            for (int i=0; i<27; i=i+1)
-                if (i < amount) sticky = sticky | value[i];
-            shifted[0] = shifted[0] | sticky;
-            shift_sticky = shifted;
+        shifted = value;
+        for (int k = 0; k < 5; k++) begin
+            if (amount[k])
+                shifted = (shifted >> (1 << k)) |
+                          {26'b0, |(shifted & ((27'd1 << (1 << k)) - 1'b1))};
         end
+        return (|amount[7:5]) ? {26'b0, |value} : shifted;
     endfunction
 
-    always_comb begin
-        exp_a = (a[30:23] == 0) ? 1 : int'(a[30:23]);
-        exp_b = (b[30:23] == 0) ? 1 : int'(b[30:23]);
-        mant_a = {a[30:23] != 0, a[22:0], 3'b000};
-        mant_b = {b[30:23] != 0, b[22:0], 3'b000};
-        common_exp = (exp_a > exp_b) ? exp_a : exp_b;
-        aligned_a = shift_sticky(mant_a, common_exp-exp_a);
-        aligned_b = shift_sticky(mant_b, common_exp-exp_b);
-        sum_ext = {1'b0, aligned_a} + {1'b0, aligned_b};
-        normalized = sum_ext[26:0];
-        if (sum_ext[27]) begin
-            normalized = sum_ext[27:1];
-            normalized[0] = normalized[0] | sum_ext[0];
-            common_exp = common_exp + 1;
+    assign exp_a = a_q[30:23] == 0 ? 8'd1 : a_q[30:23];
+    assign exp_b = b_q[30:23] == 0 ? 8'd1 : b_q[30:23];
+    assign mant_a = {a_q[30:23] != 0, a_q[22:0], 3'b000};
+    assign mant_b = {b_q[30:23] != 0, b_q[22:0], 3'b000};
+    assign normalized = sum_q[27] ? {sum_q[27:2], |sum_q[1:0]} : sum_q[26:0];
+    assign final_exp = round_exp + rounded_q[24];
+    assign final_frac = rounded_q[24] ? rounded_q[23:1] : rounded_q[22:0];
+    assign in_ready = rst_n;
+
+    always_ff @(posedge clk) begin
+        a_q <= a;
+        b_q <= b;
+        if (exp_a >= exp_b) begin
+            exp_q <= exp_a;
+            big_q <= mant_a;
+            small_q <= mant_b;
+            shift_q <= exp_a - exp_b;
+        end else begin
+            exp_q <= exp_b;
+            big_q <= mant_b;
+            small_q <= mant_a;
+            shift_q <= exp_b - exp_a;
         end
-        rounded = {1'b0, normalized[26:3]};
-        if (normalized[2] && (normalized[1] || normalized[0] || normalized[3]))
-            rounded = rounded + 25'd1;
-        if (rounded[24]) begin
-            rounded = rounded >> 1;
-            common_exp = common_exp + 1;
-        end
-        if (common_exp == 1 && !rounded[23]) common_exp = 0;
-        result_next = {1'b0, common_exp[7:0], rounded[22:0]};
-        if (common_exp >= 255) result_next = 32'h7f800000;
-        if (a[30:0] == 31'h7f800000 || b[30:0] == 31'h7f800000)
-            result_next = 32'h7f800000;
-        if (a[31] || b[31] || (a[30:23] == 255 && a[22:0] != 0) || (b[30:23] == 255 && b[22:0] != 0))
-            result_next = 32'h7fc00000;
+        if (a_q[31] || b_q[31] || (&a_q[30:23] && |a_q[22:0]) ||
+                                   (&b_q[30:23] && |b_q[22:0]))
+            prep_kind <= INVALID;
+        else if (&a_q[30:23] || &b_q[30:23])
+            prep_kind <= INF;
+        else
+            prep_kind <= FINITE;
+
+        big_aligned <= big_q;
+        small_aligned <= shift_sticky(small_q, shift_q);
+        aligned_exp <= exp_q;
+        align_kind <= prep_kind;
+
+        sum_q <= {1'b0, big_aligned} + {1'b0, small_aligned};
+        sum_exp <= aligned_exp;
+        sum_kind <= align_kind;
+
+        rounded_q <= {1'b0, normalized[26:3]} +
+                     (normalized[2] && (normalized[1] || normalized[0] || normalized[3]));
+        round_exp <= {1'b0, sum_exp} + sum_q[27];
+        round_kind <= sum_kind;
     end
 
-    assign in_ready = rst_n;
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            result <= '0;
+            valid_pipe <= '0;
             out_valid <= 1'b0;
+            result <= '0;
         end else begin
-            out_valid <= in_valid && in_ready;
-            if (in_valid && in_ready) 
-                result <= result_next;
+            valid_pipe <= {valid_pipe[3:0], in_valid};
+            out_valid <= valid_pipe[4];
+            if (valid_pipe[4]) begin
+                if (round_kind == INVALID)
+                    result <= 32'h7fc00000;
+                else if (round_kind == INF || final_exp >= 255)
+                    result <= 32'h7f800000;
+                else if (final_exp == 1 && !rounded_q[23] && !rounded_q[24])
+                    result <= {9'b0, final_frac};
+                else
+                    result <= {1'b0, final_exp[7:0], final_frac};
+            end
         end
     end
 endmodule

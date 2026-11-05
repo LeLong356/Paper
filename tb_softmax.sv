@@ -1,21 +1,22 @@
 `timescale 1ns/1ps
 // Run using python3 verify_softmax.py. Outputs are sampled after clock updates.
 module tb_softmax;
+    localparam int MAX_LENGTH = 32;
     logic clk=0, rst_n=0, start=0, in_valid=0;
-    logic [11:0] row_length=0;
+    logic [$clog2(MAX_LENGTH+1)-1:0] row_length=0;
     logic signed [31:0] in_data=0;
     wire ready, in_ready, out_valid, out_last, done;
     wire signed [7:0] out_data;
-    reg signed [31:0] samples[0:2047];
-    reg [31:0] expected[0:2047], expected_sum;
-    reg [7:0] expected_int8[0:2047];
+    reg signed [31:0] samples[0:MAX_LENGTH-1];
+    reg [31:0] expected[0:MAX_LENGTH-1], expected_sum;
+    reg [7:0] expected_int8[0:MAX_LENGTH-1];
     integer fp32_received;
     reg previous_valid, previous_last;
     integer fd, dump_fd, status, n, cycles, received;
     integer rows=0, elements=0;
     string vector_path, output_path;
     softmax dut(.*);
-    always #5 clk=~clk;
+    always #2.5 clk=~clk; // 5 ns period (200 MHz)
     // Check exact one-cycle valid/last alignment through the quantizer.
     always @(posedge clk) begin
         previous_valid = rst_n && dut.probability_valid;
@@ -65,7 +66,7 @@ module tb_softmax;
         @(negedge clk); in_valid=0; start=1; row_length=0;
         @(posedge clk); #1;
         if(ready !== 1 || in_ready !== 0) $fatal(1,"Accepted zero length");
-        @(negedge clk); row_length=2049;
+        @(negedge clk); row_length=MAX_LENGTH+1;
         @(posedge clk); #1;
         if(ready !== 1 || in_ready !== 0) $fatal(1,"Accepted oversized row");
         @(negedge clk); start=0;
@@ -111,7 +112,7 @@ module tb_softmax;
         while(!$feof(fd)) begin
             status=$fscanf(fd,"%d %h",n,expected_sum);
             if(status==2) begin
-                if(n<1 || n>2048) $fatal(1,"Bad vector length");
+                if(n<1 || n>MAX_LENGTH) $fatal(1,"Bad vector length");
                 for(integer i=0;i<n;i=i+1) begin
                     status=$fscanf(fd,"%h %h %h",samples[i],expected[i],expected_int8[i]);
                     if(status!=3) $fatal(1,"Malformed vector");

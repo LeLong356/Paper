@@ -1,5 +1,5 @@
 module softmax_sum #(
-    parameter int MAX_LENGTH = 2048,
+    parameter int MAX_LENGTH = 32,
     parameter int COUNT_WIDTH = $clog2(MAX_LENGTH + 1)
 )(
     input logic clk, rst_n, start,
@@ -16,24 +16,41 @@ module softmax_sum #(
     typedef enum logic [2:0] {
         IDLE, 
         RECEIVE, 
+        ADD_READ,
         ADD_REQUEST, 
         ADD_WAIT, 
         COMPLETE
     } state_t;
     state_t state, next_state;
-    logic [15:0] exp_buffer [0:MAX_LENGTH-1];
+    (* ram_style = "block" *) logic [15:0] exp_buffer [0:MAX_LENGTH-1];
     logic [COUNT_WIDTH-1:0] length_reg, received_count, add_index;
     logic [31:0] term_fp32, accumulator;
     logic [31:0] add_a, add_b, add_result;
     logic add_in_valid, add_in_ready, add_out_valid;
 
-    assign term_fp32 = {exp_buffer[add_index], 16'b0};
+    logic [15:0] ram_read_data;
+    localparam int ADDR_WIDTH = MAX_LENGTH > 1 ? $clog2(MAX_LENGTH) : 1;
+    logic [ADDR_WIDTH-1:0] ram_read_index;
+    logic external_read, external_valid;
+    logic read_valid_q;
+    assign external_read = (state == IDLE || state == COMPLETE);
+    assign external_valid = external_read && read_index < received_count;
+    assign ram_read_index = external_read ? ADDR_WIDTH'(read_index) : ADDR_WIDTH'(add_index);
+    always_ff @(posedge clk) begin
+        if (rst_n && state == RECEIVE && exp_valid)
+            exp_buffer[ADDR_WIDTH'(received_count)] <= exp_data;
+        if (state == ADD_READ || external_read)
+            ram_read_data <= exp_buffer[ram_read_index];
+    end
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) read_valid_q <= 1'b0;
+        else read_valid_q <= external_valid && !(state == IDLE && start);
+    end
+    assign term_fp32 = {ram_read_data, 16'b0};
     assign sum_fp32 = accumulator;
     assign sum_valid = (state == COMPLETE);
     assign ready = (state == IDLE);
-    assign read_data = (rst_n && read_index < MAX_LENGTH &&
-                        read_index < length_reg && read_index < received_count)
-                     ? exp_buffer[read_index] : 16'h0000;
+    assign read_data = read_valid_q ? ram_read_data : 16'h0000;
 
     fp32_add_positive u_add (
         .clk(clk), 
@@ -66,7 +83,6 @@ module softmax_sum #(
                 end
                 RECEIVE: begin
                     if (exp_valid) begin
-                        exp_buffer[received_count] <= exp_data;
                         received_count <= received_count + 1'b1;
                     end
                 end
@@ -94,8 +110,9 @@ module softmax_sum #(
             end
             RECEIVE: begin
                 if (exp_valid && received_count == length_reg - 1'b1)
-                    next_state = ADD_REQUEST;
+                    next_state = ADD_READ;
             end
+            ADD_READ: next_state = ADD_REQUEST;
             ADD_REQUEST: begin
                 add_in_valid = 1'b1;
                 if (add_in_ready) 
@@ -106,7 +123,7 @@ module softmax_sum #(
                     if (add_index == length_reg - 1'b1)
                         next_state = COMPLETE;
                     else
-                        next_state = ADD_REQUEST;
+                        next_state = ADD_READ;
                 end
             end
             COMPLETE: next_state = IDLE;
@@ -114,10 +131,12 @@ module softmax_sum #(
         endcase
     end
 
+    // synthesis translate_off
     always @(posedge clk) begin
         if (rst_n && state == RECEIVE && exp_valid)
             assert (exp_last == (received_count == length_reg - 1'b1))
         else 
             $fatal(1, "exp_last does not match row_length");
     end
+    // synthesis translate_on
 endmodule

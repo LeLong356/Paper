@@ -1,5 +1,5 @@
 module softmax #(
-    parameter int MAX_LENGTH=2048,
+    parameter int MAX_LENGTH=32,
     parameter int COUNT_WIDTH=$clog2(MAX_LENGTH+1)
 )(
     input logic clk, rst_n, start,
@@ -16,6 +16,7 @@ module softmax #(
     typedef enum logic [2:0] {
         IDLE, 
         WAIT_SUM, 
+        READ_NUMERATOR,
         DIV_REQUEST, 
         DIV_WAIT, 
         QUANTIZE_WAIT,
@@ -96,9 +97,10 @@ module softmax #(
             end
             WAIT_SUM: begin
                 if (sum_valid) begin
-                    next_state = DIV_REQUEST;
+                    next_state = READ_NUMERATOR;
                 end
             end
+            READ_NUMERATOR: next_state = DIV_REQUEST;
             DIV_REQUEST: begin
                 div_in_valid = 1'b1;
                 if (div_in_ready) begin
@@ -111,7 +113,7 @@ module softmax #(
                         next_state = QUANTIZE_WAIT;
                     end
                     else begin
-                        next_state = DIV_REQUEST;
+                        next_state = READ_NUMERATOR;
                     end
                 end
             end
@@ -147,6 +149,8 @@ module softmax #(
                     if (sum_valid) begin
                         sum_reg <= sum_fp32;
                     end
+                end
+                READ_NUMERATOR: begin
                 end
                 DIV_REQUEST: begin
                 end

@@ -1,5 +1,5 @@
 module softmax_exp_sum #(
-    parameter int MAX_LENGTH=2048,
+    parameter int MAX_LENGTH=32,
     parameter int COUNT_WIDTH=$clog2(MAX_LENGTH+1)
 )(
     input logic clk, rst_n, start,

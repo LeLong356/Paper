@@ -4,7 +4,7 @@
 // iverilog -g2012 -s tb_softmax_row_max -o /tmp/row_max.vvp softmax_row_max.sv tb_softmax_row_max.sv
 // vvp /tmp/row_max.vvp
 module tb_softmax_row_max;
-    localparam int MAX_LENGTH = 2048;
+    localparam int MAX_LENGTH = 32;
     localparam int COUNT_WIDTH = $clog2(MAX_LENGTH + 1);
     logic clk = 0;
     logic rst_n = 0;
@@ -39,7 +39,7 @@ module tb_softmax_row_max;
         @(negedge clk);
         start = 1; row_length = n; in_valid = 0;
         @(posedge clk); #1;
-        if (in_ready !== 1 || done !== 0 || diff_valid !== 0 || dut.length_reg !== n)
+        if (in_ready !== 1 || done !== 0 || diff_valid !== 0 || dut.last_index !== n - 1)
             $fatal(1, "Failed to start row of length %0d", n);
         @(negedge clk);
         start = 0;
@@ -71,6 +71,7 @@ module tb_softmax_row_max;
         end
         // Keep valid asserted to prove that SUBTRACT does not receive extra data.
         in_valid = 1; in_data = 32'sh7fffffff;
+        @(posedge clk); #1; if (diff_valid || done) $fatal(1,"Early output during RAM read");
         for (integer j = 0; j < n; j = j + 1) begin
             if (in_ready !== 0 || dut.subtract_count !== j)
                 $fatal(1, "%s: wrong subtract index %0d", label_text, j);
@@ -81,20 +82,11 @@ module tb_softmax_row_max;
             if (diff_valid !== 1 || diff_data !== expected_diff[32:0])
                 $fatal(1, "%s[%0d]: stream valid=%b, data=%0d, expected=%0d",
                        label_text, j, diff_valid, diff_data, expected_diff);
-            if (dut.diff_buffer[j] !== expected_diff[32:0])
-                $fatal(1, "%s[%0d]: got %0d, expected %0d", label_text, j,
-                       $signed(dut.diff_buffer[j]), expected_diff);
             if (done !== (j == n - 1) || max_value !== expected_max[31:0] ||
                 dut.received_count !== n)
                 $fatal(1, "%s: completion/max/count mismatch", label_text);
             checked_elements = checked_elements + 1;
             @(negedge clk);
-        end
-        // Check that all differences remain intact after the final write.
-        for (integer j = 0; j < n; j = j + 1) begin
-            value64 = samples[j]; expected_diff = value64 - expected_max;
-            if (dut.diff_buffer[j] !== expected_diff[32:0])
-                $fatal(1, "%s: stored difference overwritten", label_text);
         end
         in_valid = 0;
         @(posedge clk); #1;
@@ -130,14 +122,14 @@ module tb_softmax_row_max;
         run_row("all equal", 8, 1);
         samples[0]=99; samples[1]=1; samples[2]=-99;
         run_row("first element is max", 3, 0);
-        for (integer j=0; j<MAX_LENGTH; j=j+1) samples[j]=j-1024;
+        for (integer j=0; j<MAX_LENGTH; j=j+1) samples[j]=j-MAX_LENGTH/2;
         run_row("maximum length", MAX_LENGTH, 1);
         for (integer r=0; r<20; r=r+1) begin
-            for (integer j=0; j<1+r*7; j=j+1) begin
+            for (integer j=0; j<1+(r*7)%MAX_LENGTH; j=j+1) begin
                 random_state = random_state * 32'd1664525 + 32'd1013904223;
                 samples[j] = random_state;
             end
-            run_row($sformatf("deterministic random %0d",r), 1+r*7, 1);
+            run_row($sformatf("deterministic random %0d",r), 1+(r*7)%MAX_LENGTH, 1);
         end
 
         // Abort RECEIVE, then ensure the next row starts cleanly.
@@ -146,7 +138,7 @@ module tb_softmax_row_max;
         reset_dut();
         samples[0]=7; run_row("after reset during receive",1,0);
 
-        // Abort SUBTRACT after its first write, then process a different row.
+        // Abort SUBTRACT with its first RAM read pending, then process a different row.
         begin_row(3);
         for (integer j=0; j<3; j=j+1) begin
             in_valid=1; in_data=j;
@@ -157,7 +149,7 @@ module tb_softmax_row_max;
         reset_dut();
         samples[0]=-9; samples[1]=-4;
         run_row("after reset during subtract",2,0);
-        $display("ALL PASS: %0d rows, %0d buffer AND stream differences; invalid lengths and reset checks passed",
+        $display("ALL PASS: %0d rows, %0d stream differences; invalid lengths and reset checks passed",
                  passed, checked_elements);
         $finish;
     end
