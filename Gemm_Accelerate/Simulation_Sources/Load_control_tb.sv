@@ -1,3 +1,5 @@
+`timescale 1ns/1ps
+
 module Load_control_tb();
 
 localparam int TILE = 32 ;
@@ -17,7 +19,6 @@ localparam int C_DEPTH = N * M_TILE ;
 logic clk, rst_n ;
 logic start, busy ;
 
-logic load_reg_tile_done ;
 logic l_write_bram ;
 logic l_cp_n ;
 logic l_cp_m ;
@@ -27,7 +28,7 @@ logic [$clog2(TILE)-1:0] row_index ;
 
 state_t load_state ;
 
-load_control #(
+Load_control #(
       .N_TILE(N_TILE),
       .M_TILE(M_TILE),
       .K_TILE(K_TILE),
@@ -38,14 +39,13 @@ load_control #(
       .rst_n(rst_n),
       .start(start),
       .waits(busy),
-      .load_reg_tile_done(load_reg_tile_done),
-      .write_bram(l_write_bram),
       .load_state(load_state),
       .addra(a_rd_addr),
       .addrb(b_rd_addr),
       .row_index(row_index),
       .cp_n_out(l_cp_n),
-      .cp_m_out(l_cp_m)
+      .cp_m_out(l_cp_m),
+      .write_bram(l_write_bram)
    );
 
 task automatic clock(input int number) ;

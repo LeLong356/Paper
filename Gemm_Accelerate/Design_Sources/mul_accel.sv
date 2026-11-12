@@ -23,9 +23,10 @@ endmodule
 // Top system
 module mul_accel
 #(
-   parameter int N = 64,
-   parameter int K = 768,
-   parameter int M = 256
+   parameter int TILE = DEFAULT_TILE,
+   parameter int N = DEFAULT_N,
+   parameter int K = DEFAULT_K,
+   parameter int M = DEFAULT_M
 )(
    input  logic clk, rst_n,
    input  logic start,
@@ -35,9 +36,11 @@ module mul_accel
    input  logic a_wenable,
    input  logic [$clog2(N*(K/TILE))-1:0] a_wr_addr,
    input  logic [TILE*DTYPEIN-1:0] a_wdata,
+
    input  logic b_wenable,
    input  logic [$clog2(K*(M/TILE))-1:0] b_wr_addr,
    input  logic [TILE*DTYPEIN-1:0] b_wdata,
+
    input  logic c_renable,
    input  logic [$clog2(N*(M/TILE))-1:0] c_rd_addr,
    input  logic [TILE*DTYPEOUT-1:0] c_rdata
@@ -52,13 +55,16 @@ module mul_accel
 
    state_t load_state ;
 
-   // BRAM
+   // A,B BRAM
    logic [$clog2(A_DEPTH)-1:0] a_rd_addr ;
    logic [$clog2(B_DEPTH)-1:0] b_rd_addr ;
-   logic a_renable, b_renable ;
-   logic c_wenable ;
+   logic renable ;
    logic [TILE*DTYPEIN-1:0] a_rdata, b_rdata ;
+   // C BRAM
+   logic [$clog2(C_DEPTH)-1:0] c_wr_addr ;
    logic [TILE*DTYPEOUT-1:0] c_wdata ;
+   logic c_wenable ;
+   logic w_write_bram ;
 
    BRAM #(
       .DEPTH(A_DEPTH),
@@ -67,7 +73,7 @@ module mul_accel
       .clk(clk),
       .address((load_state == IDLE)? a_wr_addr : a_rd_addr),
       .wenable((load_state == IDLE)? a_wenable : 'b0),
-      .renable((load_state == IDLE)? 'b0 : a_renable),
+      .renable((load_state == IDLE)? 'b0 : renable),
       .data_in(a_wdata),
       .data_out(a_rdata)
    );
@@ -79,35 +85,54 @@ module mul_accel
       .clk(clk),
       .address((load_state == IDLE)? b_wr_addr : b_rd_addr),
       .wenable((load_state == IDLE)? b_wenable : 'b0),
-      .renable((load_state == IDLE)? 'b0 : b_renable),
+      .renable((load_state == IDLE)? 'b0 : renable),
       .data_in(b_wdata),
       .data_out(b_rdata)
+   );
+
+   BRAM #(
+      .DEPTH(C_DEPTH),
+      .DWIDTH(TILE*DTYPEOUT)
+   ) C_bram (
+      .clk(clk),
+      .address((w_write_bram)? c_wr_addr : c_rd_addr),
+      .wenable(c_wenable),
+      .renable(c_renable),
+      .data_in(c_wdata),
+      .data_out(c_rdata)
    );
 
    // L0 registers
    // Load side of pipeline
    logic [DTYPEIN -1:0] l_locala [TILE][TILE] ;
    logic [DTYPEIN -1:0] l_localb [TILE][TILE] ;
-   logic l_write_bram, l_cp_n, l_cp_m ;
+   logic l_write_bram ;
+   logic [$clog2(N_TILE)-1:0] l_cp_n ;
+   logic [$clog2(M_TILE)-1:0] l_cp_m ;
    // Compute side of pipeline
    logic [DTYPEIN -1:0] c_locala [TILE][TILE] ;
    logic [DTYPEIN -1:0] c_localb [TILE][TILE] ;
    logic [DTYPEOUT-1:0] c_localc [TILE][TILE] ;
-   logic c_write_bram, c_cp_n, c_cp_m ;
+   logic c_write_bram ;
+   logic [$clog2(N_TILE)-1:0]c_cp_n ;
+   logic [$clog2(M_TILE)-1:0] c_cp_m ;
    logic gemm_busy, gemm_start, gemm_done ;
    // Writeback side of pipeline
    logic [DTYPEOUT-1:0] w_localc [TILE][TILE] ;
-   logic w_write_bram, w_cp_n, w_cp_m ;
+   logic [$clog2(N_TILE)-1:0] w_cp_n ;
+   logic [$clog2(M_TILE)-1:0] w_cp_m ;
    logic wb_start, wb_ready ;
-   fsm_t new_dotproduct_fsm ;
+
+   // pipeline inside Load stage
+   logic [$clog2(TILE)-1:0] row_index, row_index_reg ;
 
    // pipeline between Load and Compute
-   logic pipeline_enable ;
-   assign pipeline_enable = load_reg_tile_done & !gemm_busy & wb_ready;
-
-   logic [$clog2(TILE)-1:0] reg_row_index ;
    logic load_reg_tile_done ;
-   load_control #(
+   logic pipeline_enable ;
+   assign pipeline_enable = load_reg_tile_done & !gemm_busy & wb_ready & !done ;
+
+   Load_control #(
+      .TILE(TILE),
       .N_TILE(N_TILE),
       .M_TILE(M_TILE),
       .K_TILE(K_TILE),
@@ -117,24 +142,42 @@ module mul_accel
       .clk(clk),
       .rst_n(rst_n),
       .start(start),
-      .waits(gemm_busy),
-      .load_reg_tile_done(load_reg_tile_done),
-      .write_bram(l_write_bram),
+      .waits(!pipeline_enable),
+      .done(done),
       .load_state(load_state),
       .addra(a_rd_addr),
       .addrb(b_rd_addr),
-      .row_index(reg_row_index),
+      .row_index(row_index_reg),
+      .renable(renable),
       .cp_n_out(l_cp_n),
-      .cp_m_out(l_cp_m)
+      .cp_m_out(l_cp_m),
+      .write_bram(l_write_bram)
    );
 
-   always_comb begin
-      for(int i=0 ; i<TILE ; i++) begin
-         l_locala[reg_row_index][i] = a_rdata[i*DTYPEIN +: DTYPEIN] ;
-         l_localb[reg_row_index][i] = b_rdata[i*DTYPEIN +: DTYPEIN] ;
+// Pipeline inside Load stage
+   always_ff @(posedge clk, negedge rst_n) begin
+      if(!rst_n) begin
+         load_reg_tile_done <= 1'b0 ;
+         row_index <= 'b0 ;
+      end
+      else begin
+         // pipeline to access bram
+         row_index <= row_index_reg ;
+
+         // pipeline to write L0 register
+         for(int i=0 ; i<TILE ; i++) begin
+            l_locala[row_index][i] <= a_rdata[i*DTYPEIN +: DTYPEIN] ;
+            l_localb[row_index][i] <= b_rdata[i*DTYPEIN +: DTYPEIN] ;
+         end
+         unique case(load_reg_tile_done)
+            1'b0: load_reg_tile_done <= (row_index == TILE-1) | (load_state == DONE) ;
+            1'b1: load_reg_tile_done <= (pipeline_enable)? 1'b0 : 1'b1 ;
+            default: ;
+         endcase
       end
    end
 
+// Pipeline between Load and Compute
    always_ff @(posedge clk, negedge rst_n) begin
       if(!rst_n) begin
          for(int i=0 ; i<TILE ; i++) begin
@@ -163,7 +206,9 @@ module mul_accel
       end
    end
 
-   Gemm gemm(
+   Gemm #(
+        .TILE(TILE)
+   ) gemm (
         .clk(clk),
         .rst_n(rst_n),
         .start(gemm_start),
@@ -174,7 +219,7 @@ module mul_accel
         .done(gemm_done)
    );
 
-   // pipeline between compute and writeback
+// Pipeline between Compute and Writeback
    always_ff @(posedge clk) begin
       if(!rst_n) begin
          for(int i=0 ; i<TILE ; i++) begin
@@ -192,28 +237,34 @@ module mul_accel
                   w_localc[i][j] <= c_localc[i][j] ;
                end
             end
+            wb_start <= 1'b1 ;
             w_write_bram <= c_write_bram ;
             w_cp_n <= c_cp_n ;
             w_cp_m <= c_cp_m ;
-
-            // Control new_dotproduct signal
-            unique case(new_dotproduct_fsm)
-               IDLE:    new_dotproduct_fsm <= (c_write_bram)? PRE : IDLE ;
-               PRE:     new_dotproduct_fsm <= ACTIVE ;
-               ACTIVE:  new_dotproduct_fsm <= IDLE ;
-            endcase
          end
+         else wb_start <= 1'b0 ;
       end
    end
 
    logic [DTYPEOUT-1:0] acc_localc [TILE][TILE] ;
-   Accumulate_control Accumulate (
+   Accumulate_control #(
+      .C_DEPTH(C_DEPTH),
+      .N_TILE(N_TILE),
+      .K_TILE(K_TILE),
+      .M_TILE(M_TILE),
+      .TILE(TILE)
+   ) Accumulate (
       .clk(clk), .rst_n(rst_n),
       .wb_start(wb_start),
-      .new_dotproduct(new_dotproduct_fsm == ACTIVE),
       .new_localc(w_localc),
       .acc_localc(acc_localc),
       .wb_ready(wb_ready),
+      .cp_n(w_cp_n),
+      .cp_m(w_cp_m),
+      .write_bram(w_write_bram),
+      .wen(c_wenable),
+      .addr(c_wr_addr),
+      .wdata(c_wdata),
+      .top_system_done(done)
    );
-
 endmodule

@@ -18,6 +18,7 @@ localparam int C_DEPTH = N * M_TILE ;
 
 logic clk, rst_n ;
 logic start, busy, done ;
+logic valid_in, valid_out ;
 logic [DTYPEIN-1:0] locala [TILE][TILE] ;
 logic [DTYPEIN-1:0] localb [TILE][TILE] ;
 logic [DTYPEOUT-1:0] localc[TILE][TILE] ;
@@ -30,17 +31,18 @@ logic [DTYPEOUT-1:0] load_C [TILE*TILE];
 logic [DTYPEIN-1:0] small_a [TILE] ;
 logic [DTYPEIN-1:0] small_b [TILE] ;
 logic [DTYPEOUT-1:0] small_c [TILE][TILE] ;
-logic [DTYPEOUT-1:0] small_prevc [TILE][TILE] ;
 logic [DTYPEOUT-1:0] expected_small_c [TILE][TILE] ;
 
 logic [DTYPEOUT-1:0] load_expected_small_c [TILE*TILE];
-logic [DTYPEOUT-1:0] load_small_prevc [TILE*TILE];
 
 grid_mac mac_dut(
+    .clk(clk),
+    .rst_n(rst_n),
+    .valid_in(valid_in),
     .A(small_a),
     .B(small_b),
-    .C_in(small_prevc),
-    .C_out(small_c)
+    .C_out(small_c),
+    .valid_out(valid_out)
 );
 
 Gemm gemm_dut (
@@ -66,24 +68,24 @@ task automatic reset() ;
 endtask
 
 task automatic small_matrix_test() ;
+    reset() ;
+    valid_in <= 1'b1 ;
     $readmemh("small_a.hex", small_a) ;
     $readmemh("small_b.hex", small_b) ;
     $readmemh("small_c.hex", load_expected_small_c) ;
-    $readmemh("small_prevc.hex", load_small_prevc) ;
 
     for(int i=0 ; i<TILE ; i++) begin
         for(int j=0 ; j<TILE ; j++) begin
-            small_prevc[i][j] = load_small_prevc[i*TILE + j] ;
             expected_small_c[i][j] = load_expected_small_c[i*TILE + j] ;
         end
     end
 
-    clock(10) ;
+    clock(1) ; valid_in <= 1'b0 ;
+    clock(5) ;
 
     check_32x32: assert (small_c == expected_small_c)
         $display("SUCCESS") ;
     else $error("Multiplication error!");
-
 endtask
 
 task automatic Gemm_test() ;
@@ -100,9 +102,8 @@ task automatic Gemm_test() ;
     end
 
     reset() ;
-
-    start = 1'b1 ; clock(1) ; start = 1'b0 ;
-    clock(35) ;
+    start <= 1'b1 ; clock(1) ; start <= 1'b0 ;
+    clock(40) ;
 
     check_32x32: assert (localc == expected_c)
         $display("SUCCESS") ;
