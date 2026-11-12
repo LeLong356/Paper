@@ -125,6 +125,7 @@ module mul_accel
 
    // pipeline inside Load stage
    logic [$clog2(TILE)-1:0] row_index, row_index_reg ;
+   logic load_local_valid ;
 
    // pipeline between Load and Compute
    logic load_reg_tile_done ;
@@ -159,15 +160,19 @@ module mul_accel
       if(!rst_n) begin
          load_reg_tile_done <= 1'b0 ;
          row_index <= 'b0 ;
+         load_local_valid <= 1'b0 ;
       end
       else begin
          // pipeline to access bram
          row_index <= row_index_reg ;
+         load_local_valid <= renable ;
 
          // pipeline to write L0 register
          for(int i=0 ; i<TILE ; i++) begin
-            l_locala[row_index][i] <= a_rdata[i*DTYPEIN +: DTYPEIN] ;
-            l_localb[row_index][i] <= b_rdata[i*DTYPEIN +: DTYPEIN] ;
+            if(load_local_valid) begin
+               l_locala[row_index][i] <= a_rdata[i*DTYPEIN +: DTYPEIN] ;
+               l_localb[row_index][i] <= b_rdata[i*DTYPEIN +: DTYPEIN] ;
+            end
          end
          unique case(load_reg_tile_done)
             1'b0: load_reg_tile_done <= (row_index == TILE-1) | (load_state == DONE) ;

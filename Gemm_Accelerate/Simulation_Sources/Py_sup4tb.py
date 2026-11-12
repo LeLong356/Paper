@@ -44,7 +44,7 @@ write_file_hex(r"E:\BKU\SoC_Design\Edge_AI\Paper\Gemm_Accelerate\Simulation_Sour
 
 small_bram_a = np.random.randint(-128,128, size=(32, 64), dtype=np.int8)
 small_bram_b = np.random.randint(-128,128, size=(64, 48), dtype=np.int8)
-small_bram_c = bram_a.astype(np.int32) @ bram_b.astype(np.int32) 
+small_bram_c = small_bram_a.astype(np.int32) @ small_bram_b.astype(np.int32) 
 
 write_file_hex(r"E:\BKU\SoC_Design\Edge_AI\Paper\Gemm_Accelerate\Simulation_Sources\top_test_hexfile\small_bram_a.hex", small_bram_a, 8)
 write_file_hex(r"E:\BKU\SoC_Design\Edge_AI\Paper\Gemm_Accelerate\Simulation_Sources\top_test_hexfile\small_bram_b.hex", small_bram_b, 8)
