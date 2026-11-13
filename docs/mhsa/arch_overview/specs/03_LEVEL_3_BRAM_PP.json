@@ -1,0 +1,291 @@
+{
+ "library_sha256": "D1631ACF98A920526B235E8970FEDDC9305EA2F0D6A35C6529CD220D62AFABB6",
+ "layout": {
+  "gap_h": 90,
+  "gap_v": 80,
+  "margin": 40,
+  "block_h": 60
+ },
+ "top": {
+  "frame_label": [
+   "u_bram_pp",
+   "(bram_pp)"
+  ],
+  "block_label": [
+   "u_bram_pp",
+   "(bram_pp)"
+  ],
+  "block_row": [
+   "u_bram_pp (bram_pp)",
+   "[EXISTS, Long] Two 6144 x 256 synchronous BRAM banks that swap roles. A small role FSM keeps which bank is being written and which is being read, toggles the write bank on write-done and the read bank on read-done, and keeps a full flag per bank. Writes are steered to the write bank; reads go to the read bank and the output is selected with the read-bank select delayed by one cycle because the BRAM has one cycle of read latency.",
+   "memory 2026-10-27; wave/bram_pp.json"
+  ]
+ },
+ "frame_row": [
+  "u_bram_pp (bram_pp) frame",
+  "[EXISTS, Long] Two 6144 x 256 synchronous BRAM banks that swap roles. A small role FSM keeps which bank is being written and which is being read, toggles the write bank on write-done and the read bank on read-done, and keeps a full flag per bank. Writes are steered to the write bank; reads go to the read bank and the output is selected with the read-bank select delayed by one cycle because the BRAM has one cycle of read latency.",
+  "memory 2026-10-27; wave/bram_pp.json"
+ ],
+ "frame_interfaces": [
+  "BWR",
+  "BRD",
+  "BST",
+  "CLK"
+ ],
+ "blocks": [
+  {
+   "key": "ROLE",
+   "label": [
+    "Bank role FSM",
+    "(FG of bram_pp)"
+   ],
+   "width": 160,
+   "row": 0,
+   "col": 1,
+   "row_name": "Bank role FSM (FG of bram_pp)",
+   "function": "Holds the write-bank and read-bank selects and the two full flags. Sets a full flag and toggles the write bank when the last word of a bank is written; clears it and toggles the read bank when the reader reports done. Reports a free bank to the DMA and the full flags to the reader. Synchronous reset (open: consistency with other blocks).",
+   "source": "memory 2026-10-27"
+  },
+  {
+   "key": "WS",
+   "label": [
+    "Write steering",
+    "(FG of bram_pp)"
+   ],
+   "width": 160,
+   "row": 1,
+   "col": 0,
+   "row_name": "Write steering (FG of bram_pp)",
+   "function": "Routes the single write port (enable, address, data) to the bank selected by the role FSM; the other bank sees no write.",
+   "source": "memory 2026-10-27"
+  },
+  {
+   "key": "B0",
+   "label": [
+    "u_bank0",
+    "(bram_6144x256)"
+   ],
+   "width": 160,
+   "row": 1,
+   "col": 1,
+   "row_name": "u_bank0 (bram_6144x256)",
+   "function": "Bank 0: 6144 words of 256 bit (196 608 B, one 768 x 256 INT8 chunk), one write port and one synchronous read port.",
+   "source": "memory 2026-10-27"
+  },
+  {
+   "key": "RP",
+   "label": [
+    "Read port",
+    "(FG of bram_pp)"
+   ],
+   "width": 160,
+   "row": 1,
+   "col": 2,
+   "row_name": "Read port (FG of bram_pp)",
+   "function": "Sends the read address to the read bank and selects the output word with the read-bank select delayed one cycle to match the synchronous BRAM latency.",
+   "source": "memory 2026-10-27"
+  },
+  {
+   "key": "B1",
+   "label": [
+    "u_bank1",
+    "(bram_6144x256)"
+   ],
+   "width": 160,
+   "row": 2,
+   "col": 1,
+   "row_name": "u_bank1 (bram_6144x256)",
+   "function": "Bank 1: identical to bank 0; written while bank 0 is read, and the reverse after a swap.",
+   "source": "memory 2026-10-27"
+  }
+ ],
+ "connectors": [
+  {
+   "id": "WSEL",
+   "src": "ROLE",
+   "src_side": "L",
+   "dst": "WS",
+   "dst_side": "T"
+  },
+  {
+   "id": "RSEL",
+   "src": "ROLE",
+   "src_side": "R",
+   "dst": "RP",
+   "dst_side": "T"
+  },
+  {
+   "id": "WP0",
+   "src": "WS",
+   "src_side": "R",
+   "dst": "B0",
+   "dst_side": "L"
+  },
+  {
+   "id": "WP1",
+   "src": "WS",
+   "src_side": "B",
+   "dst": "B1",
+   "dst_side": "L"
+  },
+  {
+   "id": "RP0",
+   "src": "RP",
+   "src_side": "L",
+   "dst": "B0",
+   "dst_side": "R"
+  },
+  {
+   "id": "RP1",
+   "src": "RP",
+   "src_side": "B",
+   "dst": "B1",
+   "dst_side": "R"
+  }
+ ],
+ "externals": [
+  {
+   "id": "BWR",
+   "block": "WS",
+   "side": "L",
+   "dir": "in",
+   "pos": 0,
+   "text": [
+    "BWR",
+    "we, waddr, din"
+   ]
+  },
+  {
+   "id": "BRD",
+   "block": "RP",
+   "side": "R",
+   "dir": "in",
+   "pos": 0,
+   "text": [
+    "BRD",
+    "re, raddr, dout"
+   ]
+  },
+  {
+   "id": "BST",
+   "block": "ROLE",
+   "side": "T",
+   "dir": "out",
+   "pos": 40,
+   "text": [
+    "BST",
+    "wr_ready, wr_done,",
+    "rd_done, full[1:0]"
+   ]
+  },
+  {
+   "id": "CLK",
+   "block": "ROLE",
+   "side": "T",
+   "dir": "in",
+   "pos": -60,
+   "text": [
+    "CLK",
+    "clk, rst"
+   ]
+  }
+ ],
+ "nets": [
+  {
+   "entry": "CLK",
+   "sinks": [
+    {
+     "id": "C1",
+     "block": "WS",
+     "side": "L",
+     "pos": 15
+    },
+    {
+     "id": "C2",
+     "block": "RP",
+     "side": "R",
+     "pos": 15
+    },
+    {
+     "id": "C3",
+     "block": "B1",
+     "side": "B",
+     "pos": 0
+    }
+   ]
+  }
+ ],
+ "interfaces": [
+  {
+   "id": "WSEL",
+   "name": "Write-bank select",
+   "category": "custom",
+   "active": "Bank role FSM -> Write steering",
+   "signals": "wr_bank [level]"
+  },
+  {
+   "id": "RSEL",
+   "name": "Read-bank select",
+   "category": "custom",
+   "active": "Bank role FSM -> Read port",
+   "signals": "rd_bank [level], rd_bank_q [level, delayed 1 cycle]"
+  },
+  {
+   "id": "WP0",
+   "name": "Bank 0 write port",
+   "category": "custom",
+   "active": "Write steering -> u_bank0",
+   "signals": "we0, waddr[12:0], din[255:0]"
+  },
+  {
+   "id": "WP1",
+   "name": "Bank 1 write port",
+   "category": "custom",
+   "active": "Write steering -> u_bank1",
+   "signals": "we1, waddr[12:0], din[255:0]"
+  },
+  {
+   "id": "RP0",
+   "name": "Bank 0 read port",
+   "category": "custom",
+   "active": "Read port -> u_bank0",
+   "signals": "re0, raddr[12:0]; u_bank0 -> Read port: dout0[255:0]"
+  },
+  {
+   "id": "RP1",
+   "name": "Bank 1 read port",
+   "category": "custom",
+   "active": "Read port -> u_bank1",
+   "signals": "re1, raddr[12:0]; u_bank1 -> Read port: dout1[255:0]"
+  },
+  {
+   "id": "BWR",
+   "name": "BRAM write port (data part)",
+   "category": "custom",
+   "active": "u_dma -> Write steering",
+   "signals": "we, waddr[12:0], din[255:0]"
+  },
+  {
+   "id": "BRD",
+   "name": "BRAM read port (data part)",
+   "category": "custom",
+   "active": "u_gemm -> Read port",
+   "signals": "re, raddr[12:0]; Read port -> u_gemm: dout[255:0]"
+  },
+  {
+   "id": "BST",
+   "name": "Bank status (status part of BWR and BRD)",
+   "category": "custom",
+   "active": "Bank role FSM <-> u_dma, u_gemm",
+   "signals": "Bank role FSM -> u_dma: wr_ready [level], wr_done [pulse]; u_gemm -> Bank role FSM: rd_done [pulse]; Bank role FSM -> u_gemm: full[1:0] [level]"
+  },
+  {
+   "id": "CLK",
+   "name": "Clock and reset",
+   "category": "custom",
+   "active": "external -> all blocks",
+   "signals": "clk, rst (synchronous reset). u_bank0 uses the same clk; its branch is not drawn because all four sides of u_bank0 are taken by other connectors"
+  }
+ ],
+ "legend_note": "Architecture mode: drawn from project documents, not from RTL. [EXISTS] = block already written; [FIXED] = decided by Long; [PROPOSED] = Claude proposal; dashed outline = location or existence not decided. FG = functional group of the module own logic. [pulse] = one-cycle signal, [level] = held value."
+}

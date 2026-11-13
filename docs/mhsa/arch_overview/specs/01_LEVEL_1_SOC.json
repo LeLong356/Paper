@@ -1,0 +1,264 @@
+{
+ "library_sha256": "D1631ACF98A920526B235E8970FEDDC9305EA2F0D6A35C6529CD220D62AFABB6",
+ "layout": {
+  "gap_h": 90,
+  "gap_v": 80,
+  "margin": 40,
+  "block_h": 60
+ },
+ "top": {
+  "frame_label": [
+   "TOP",
+   "(GenTop)"
+  ],
+  "block_label": [
+   "TOP",
+   "(GenTop)"
+  ],
+  "block_row": [
+   "TOP (GenTop)",
+   "[EXISTS] VC707 SoC top. A VexRiscv CPU runs firmware from an instruction memory and reaches a data memory and the accelerator register window through an address decoder; the accelerator window is converted to AXI4-Lite by a bridge. The MHSA accelerator is the only block that reads DRAM (MIG DDR3, external) for tensor data; the CPU never touches tensor data.",
+   "handoff_mhsa_dma.md 1, 3; arch doc 1"
+  ]
+ },
+ "frame_row": [
+  "TOP (GenTop) frame",
+  "[EXISTS] VC707 SoC top. A VexRiscv CPU runs firmware from an instruction memory and reaches a data memory and the accelerator register window through an address decoder; the accelerator window is converted to AXI4-Lite by a bridge. The MHSA accelerator is the only block that reads DRAM (MIG DDR3, external) for tensor data; the CPU never touches tensor data.",
+  "handoff_mhsa_dma.md 1, 3; arch doc 1"
+ ],
+ "frame_interfaces": [
+  "MAXI",
+  "CLK"
+ ],
+ "blocks": [
+  {
+   "key": "CPU",
+   "label": [
+    "u_cpu",
+    "(VexRiscv)"
+   ],
+   "width": 120,
+   "row": 0,
+   "col": 0,
+   "row_name": "u_cpu (VexRiscv)",
+   "function": "[EXISTS] RV32 CPU. It fetches instructions on its instruction bus and issues one data-bus transaction at a time. In this system its firmware only writes the task configuration into the accelerator registers, sets START and polls the DONE flag; it never moves tensor data.",
+   "source": "handoff 1, 4"
+  },
+  {
+   "key": "DEC",
+   "label": [
+    "u_dec",
+    "(dbus_decoder)"
+   ],
+   "width": 160,
+   "row": 0,
+   "col": 1,
+   "row_name": "u_dec (dbus_decoder)",
+   "function": "[EXISTS] Address decoder of the data bus. Accesses to the low 64 KiB go to the data memory; accesses to the 0x4xxx_xxxx window go to the bridge. It returns the response of the selected target to the CPU.",
+   "source": "handoff 1, 3"
+  },
+  {
+   "key": "BRG",
+   "label": [
+    "u_bridge",
+    "(Bridge)"
+   ],
+   "width": 100,
+   "row": 0,
+   "col": 2,
+   "row_name": "u_bridge (Bridge)",
+   "function": "[EXISTS] Converts a single data-bus command into one AXI4-Lite read or write transaction and returns the read data or write response. Verified at 5 cycles per write and 4 per read.",
+   "source": "handoff 3, 5"
+  },
+  {
+   "key": "ACC",
+   "label": [
+    "u_acc",
+    "(mhsa_accelerator)"
+   ],
+   "width": 200,
+   "row": 0,
+   "col": 3,
+   "row_name": "u_acc (mhsa_accelerator)",
+   "function": "[FIXED] Multi-head self-attention engine (D = 768, 12 heads of 64, INT8, assumed). After START its own controller requests contiguous chunks (X, then Wq, Wk, Wv in three 768 x 256 chunks each) from DRAM through a read-only DMA, runs the tile GEMM core and the softmax unit, and reports DONE or ERR in its status register. v0 is sequential: load, then compute. Expanded on page 02.",
+   "source": "arch doc 1-7"
+  },
+  {
+   "key": "IMEM",
+   "label": [
+    "u_imem",
+    "(IMEM)"
+   ],
+   "width": 80,
+   "row": 1,
+   "col": 0,
+   "row_name": "u_imem (IMEM)",
+   "function": "[EXISTS] 64 KiB instruction memory at 0x8000_0000, wired to the instruction bus only (Harvard), so the firmware has no initialised data section.",
+   "source": "handoff 3, 4"
+  },
+  {
+   "key": "DMEM",
+   "label": [
+    "u_dmem",
+    "(DMEM)"
+   ],
+   "width": 80,
+   "row": 1,
+   "col": 1,
+   "row_name": "u_dmem (DMEM)",
+   "function": "[EXISTS] 64 KiB data memory at 0x0000_0000 for stack and control variables; it never holds tensor data.",
+   "source": "handoff 1, 3"
+  }
+ ],
+ "connectors": [
+  {
+   "id": "IBUS",
+   "src": "CPU",
+   "src_side": "B",
+   "dst": "IMEM",
+   "dst_side": "T"
+  },
+  {
+   "id": "DBUS",
+   "src": "CPU",
+   "src_side": "R",
+   "dst": "DEC",
+   "dst_side": "L"
+  },
+  {
+   "id": "DMB",
+   "src": "DEC",
+   "src_side": "B",
+   "dst": "DMEM",
+   "dst_side": "T"
+  },
+  {
+   "id": "CMD",
+   "src": "DEC",
+   "src_side": "R",
+   "dst": "BRG",
+   "dst_side": "L"
+  },
+  {
+   "id": "AXIL",
+   "src": "BRG",
+   "src_side": "R",
+   "dst": "ACC",
+   "dst_side": "L"
+  }
+ ],
+ "externals": [
+  {
+   "id": "MAXI",
+   "block": "ACC",
+   "side": "B",
+   "dir": "out",
+   "pos": 0,
+   "text": [
+    "MAXI",
+    "AXI4 read (AR, R)",
+    "to DRAM (MIG DDR3)"
+   ]
+  },
+  {
+   "id": "CLK",
+   "block": "ACC",
+   "side": "T",
+   "dir": "in",
+   "pos": 0,
+   "text": [
+    "CLK",
+    "clk, rst"
+   ]
+  }
+ ],
+ "nets": [
+  {
+   "entry": "CLK",
+   "sinks": [
+    {
+     "id": "C1",
+     "block": "CPU",
+     "side": "T",
+     "pos": 0
+    },
+    {
+     "id": "C2",
+     "block": "DEC",
+     "side": "T",
+     "pos": 0
+    },
+    {
+     "id": "C3",
+     "block": "BRG",
+     "side": "T",
+     "pos": 0
+    },
+    {
+     "id": "C4",
+     "block": "IMEM",
+     "side": "L",
+     "pos": 0
+    },
+    {
+     "id": "C5",
+     "block": "DMEM",
+     "side": "R",
+     "pos": 0
+    }
+   ]
+  }
+ ],
+ "interfaces": [
+  {
+   "id": "IBUS",
+   "name": "Instruction bus",
+   "category": "custom (VexRiscv iBus)",
+   "active": "u_cpu -> u_imem",
+   "signals": "cmd_valid, cmd_ready, cmd_pc[31:0]; u_imem -> u_cpu: rsp_valid, rsp_inst[31:0]"
+  },
+  {
+   "id": "DBUS",
+   "name": "Data bus",
+   "category": "custom (VexRiscv dBus)",
+   "active": "u_cpu -> u_dec",
+   "signals": "cmd_valid, cmd_ready, cmd_wr, cmd_address[31:0], cmd_data[31:0], cmd_mask[3:0], cmd_size[1:0]; u_dec -> u_cpu: rsp_ready, rsp_data[31:0]"
+  },
+  {
+   "id": "DMB",
+   "name": "DMEM port",
+   "category": "custom",
+   "active": "u_dec -> u_dmem",
+   "signals": "sel, we, addr, wdata[31:0], mask[3:0]; u_dmem -> u_dec: rdata[31:0]"
+  },
+  {
+   "id": "CMD",
+   "name": "Bridge command",
+   "category": "handshake (valid/ready)",
+   "active": "u_dec -> u_bridge",
+   "signals": "cmd_valid, cmd_ready, cmd_wr, cmd_addr[31:0], cmd_data[31:0], cmd_mask[3:0]; u_bridge -> u_dec: rsp_valid, rsp_data[31:0]"
+  },
+  {
+   "id": "AXIL",
+   "name": "AXI4-Lite",
+   "category": "standard (AXI4-Lite)",
+   "active": "u_bridge -> u_acc",
+   "signals": "AWADDR, AWPROT, AWVALID, AWREADY, WDATA, WSTRB, WVALID, WREADY, BRESP, BVALID, BREADY, ARADDR, ARPROT, ARVALID, ARREADY, RDATA, RRESP, RVALID, RREADY"
+  },
+  {
+   "id": "MAXI",
+   "name": "AXI4 read",
+   "category": "standard (AXI4, read channels only)",
+   "active": "u_acc -> DRAM",
+   "signals": "ARADDR, ARLEN, ARSIZE, ARBURST, ARID, ARVALID, ARREADY; DRAM -> u_acc: RDATA (32 bit debug, 512 bit target), RRESP, RLAST, RID, RVALID, RREADY"
+  },
+  {
+   "id": "CLK",
+   "name": "Clock and reset",
+   "category": "custom",
+   "active": "external -> all blocks (distribution tree)",
+   "signals": "clk, rst (one clock domain assumed in v0)"
+  }
+ ],
+ "legend_note": "Architecture mode: drawn from project documents, not from RTL. [EXISTS] = block already written; [FIXED] = decided by Long; [PROPOSED] = Claude proposal; dashed outline = location or existence not decided. FG = functional group of the module own logic. [pulse] = one-cycle signal, [level] = held value."
+}

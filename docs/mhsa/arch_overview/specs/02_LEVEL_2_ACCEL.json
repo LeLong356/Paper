@@ -1,0 +1,406 @@
+{
+ "library_sha256": "D1631ACF98A920526B235E8970FEDDC9305EA2F0D6A35C6529CD220D62AFABB6",
+ "layout": {
+  "gap_h": 90,
+  "gap_v": 80,
+  "margin": 40,
+  "block_h": 60
+ },
+ "top": {
+  "frame_label": [
+   "u_acc",
+   "(mhsa_accelerator)"
+  ],
+  "block_label": [
+   "u_acc",
+   "(mhsa_accelerator)"
+  ],
+  "block_row": [
+   "u_acc (mhsa_accelerator)",
+   "[FIXED] The CPU only configures and starts. The controller then owns the schedule: for each chunk it issues one 1D request (address, length, destination) to the read-only DMA, waits for its completion, starts the GEMM core on the loaded chunk, and moves on (v0 sequential: no overlap of load and compute). Weights Wq, Wk, Wv are 768 x 768 each and arrive in three 768 x 256 chunks, one chunk filling exactly one bram_pp bank. Weights are never written back to DRAM.",
+   "arch doc 1-6"
+  ]
+ },
+ "frame_row": [
+  "u_acc (mhsa_accelerator) frame",
+  "[FIXED] The CPU only configures and starts. The controller then owns the schedule: for each chunk it issues one 1D request (address, length, destination) to the read-only DMA, waits for its completion, starts the GEMM core on the loaded chunk, and moves on (v0 sequential: no overlap of load and compute). Weights Wq, Wk, Wv are 768 x 768 each and arrive in three 768 x 256 chunks, one chunk filling exactly one bram_pp bank. Weights are never written back to DRAM.",
+  "arch doc 1-6"
+ ],
+ "frame_interfaces": [
+  "AXIL",
+  "MAXI",
+  "OUT",
+  "CLK"
+ ],
+ "blocks": [
+  {
+   "key": "CSR",
+   "label": [
+    "u_csr",
+    "(acc_csr_axil)"
+   ],
+   "width": 160,
+   "row": 0,
+   "col": 0,
+   "row_name": "u_csr (acc_csr_axil)",
+   "function": "[EXISTS slave / PROPOSED map] AXI4-Lite slave holding the task registers: CTRL (self-clearing START, CLR), STATUS (BUSY, sticky DONE and ERR with an error code, write-one-to-clear), DRAM base addresses of X, Wq, Wk, Wv, sequence length, head configuration and three performance counters. Configuration writes are blocked while busy. DONE reflects the end of the whole task, not of one chunk.",
+   "source": "arch doc 5"
+  },
+  {
+   "key": "CTRL",
+   "label": [
+    "u_ctrl",
+    "(acc_controller)"
+   ],
+   "width": 180,
+   "row": 0,
+   "col": 1,
+   "row_name": "u_ctrl (acc_controller)",
+   "function": "[FIXED role / PROPOSED FSM] Task sequencer. On START it loads X, then for each weight matrix and each of its three chunks requests the chunk from the DMA, waits for the chunk-done pulse, starts the GEMM core and waits for it; then runs the score, softmax and score x V stages and the output step. Any DMA error or a watchdog timeout ends the task in ERR. It also counts cycles spent waiting for DMA and computing.",
+   "source": "arch doc 1, 6"
+  },
+  {
+   "key": "SMX",
+   "label": [
+    "u_softmax",
+    "(softmax)"
+   ],
+   "width": 120,
+   "row": 0,
+   "col": 2,
+   "row_name": "u_softmax (softmax)",
+   "function": "[EXISTS] Row softmax over the attention scores of one head; started by the controller, reads score rows and writes probabilities back. The 1/sqrt(d) scale is not yet placed (open).",
+   "source": "memory 2026-10-23"
+  },
+  {
+   "key": "DMA",
+   "label": [
+    "u_dma",
+    "(dma_rd)"
+   ],
+   "width": 100,
+   "row": 1,
+   "col": 0,
+   "row_name": "u_dma (dma_rd)",
+   "function": "[FIXED] Read-only DMA. Accepts one request at a time (no queue), splits it into legal AXI4 INCR bursts (at most 16 beats, no 4 KB crossing), receives the data, packs beats into 256-bit words and writes them to the destination BRAM; reports chunk done or error. No stride support: software lays out every chunk contiguously in DRAM. Expanded on page 03_LEVEL_3_DMA.",
+   "source": "arch doc 2; dma_v0_4block.md"
+  },
+  {
+   "key": "BPP",
+   "label": [
+    "u_bram_pp",
+    "(bram_pp)"
+   ],
+   "width": 120,
+   "row": 1,
+   "col": 1,
+   "row_name": "u_bram_pp (bram_pp)",
+   "function": "[EXISTS] Ping-pong weight buffer: two banks of 6144 x 256 bit (196 608 B = one 768 x 256 INT8 chunk each). One bank is written by the DMA while the other is read by the GEMM core; the roles swap when a write and a read are complete. Expanded on page 03_LEVEL_3_BRAM_PP.",
+   "source": "memory 2026-10-27"
+  },
+  {
+   "key": "GEMM",
+   "label": [
+    "u_gemm",
+    "(gemm_core)"
+   ],
+   "width": 140,
+   "row": 2,
+   "col": 1,
+   "row_name": "u_gemm (gemm_core)",
+   "function": "[EXISTS] Minh's INT8 tile GEMM (32 x 32 tile). The A operand (activation) comes from its internal A buffer, the B operand (weight chunk) from bram_pp; outer-product, accumulate and load stages overlap at about 33 cycles per tile pair. Only one output tile is accumulated at a time, so k is the innermost loop. Expanded on page 03_LEVEL_3_GEMM.",
+   "source": "memory 2026-10-24"
+  },
+  {
+   "key": "RBUF",
+   "label": [
+    "u_rbuf",
+    "(qkv_buffer)"
+   ],
+   "width": 140,
+   "row": 2,
+   "col": 2,
+   "row_name": "u_rbuf (qkv_buffer)",
+   "function": "[PROPOSED, dashed] Storage for Q, K, V (each S x 768 B) and the score rows between stages. Its location (on-chip BRAM, cache or write-back to DRAM) is not decided; 3 x 98 304 B at S = 128 already exceeds one bank.",
+   "source": "arch doc 3, 8 item 3",
+   "dashed": true
+  }
+ ],
+ "connectors": [
+  {
+   "id": "CFG",
+   "src": "CSR",
+   "src_side": "R",
+   "dst": "CTRL",
+   "dst_side": "L"
+  },
+  {
+   "id": "STS",
+   "src": "CTRL",
+   "src_side": "L",
+   "dst": "CSR",
+   "dst_side": "R"
+  },
+  {
+   "id": "REQ",
+   "src": "CTRL",
+   "src_side": "B",
+   "dst": "DMA",
+   "dst_side": "T"
+  },
+  {
+   "id": "SCT",
+   "src": "CTRL",
+   "src_side": "R",
+   "dst": "SMX",
+   "dst_side": "L"
+  },
+  {
+   "id": "GCT",
+   "src": "CTRL",
+   "src_side": "R",
+   "dst": "GEMM",
+   "dst_side": "T"
+  },
+  {
+   "id": "BWR",
+   "src": "DMA",
+   "src_side": "R",
+   "dst": "BPP",
+   "dst_side": "L"
+  },
+  {
+   "id": "BRD",
+   "src": "GEMM",
+   "src_side": "T",
+   "dst": "BPP",
+   "dst_side": "B"
+  },
+  {
+   "id": "XWR",
+   "src": "DMA",
+   "src_side": "B",
+   "dst": "GEMM",
+   "dst_side": "L"
+  },
+  {
+   "id": "RWR",
+   "src": "GEMM",
+   "src_side": "R",
+   "dst": "RBUF",
+   "dst_side": "L"
+  },
+  {
+   "id": "ORD",
+   "src": "GEMM",
+   "src_side": "R",
+   "dst": "RBUF",
+   "dst_side": "L"
+  },
+  {
+   "id": "SMX",
+   "src": "SMX",
+   "src_side": "B",
+   "dst": "RBUF",
+   "dst_side": "T"
+  }
+ ],
+ "externals": [
+  {
+   "id": "AXIL",
+   "block": "CSR",
+   "side": "L",
+   "dir": "in",
+   "pos": 0,
+   "text": [
+    "AXIL",
+    "AXI4-Lite slave"
+   ]
+  },
+  {
+   "id": "MAXI",
+   "block": "DMA",
+   "side": "L",
+   "dir": "out",
+   "pos": 0,
+   "text": [
+    "MAXI",
+    "AXI4 read",
+    "to DRAM"
+   ]
+  },
+  {
+   "id": "OUT",
+   "block": "RBUF",
+   "side": "R",
+   "dir": "out",
+   "pos": 0,
+   "text": [
+    "OUT",
+    "result O (open)"
+   ]
+  },
+  {
+   "id": "CLK",
+   "block": "CSR",
+   "side": "T",
+   "dir": "in",
+   "pos": 0,
+   "text": [
+    "CLK",
+    "clk, rst"
+   ]
+  }
+ ],
+ "nets": [
+  {
+   "entry": "CLK",
+   "sinks": [
+    {
+     "id": "C1",
+     "block": "CTRL",
+     "side": "T",
+     "pos": 0
+    },
+    {
+     "id": "C2",
+     "block": "SMX",
+     "side": "R",
+     "pos": 0
+    },
+    {
+     "id": "C3",
+     "block": "RBUF",
+     "side": "B",
+     "pos": 0
+    },
+    {
+     "id": "C4",
+     "block": "DMA",
+     "side": "L",
+     "pos": -20
+    },
+    {
+     "id": "C5",
+     "block": "BPP",
+     "side": "R",
+     "pos": 0
+    },
+    {
+     "id": "C6",
+     "block": "GEMM",
+     "side": "B",
+     "pos": 0
+    }
+   ]
+  }
+ ],
+ "interfaces": [
+  {
+   "id": "AXIL",
+   "name": "AXI4-Lite",
+   "category": "standard (AXI4-Lite)",
+   "active": "u_bridge -> u_acc",
+   "signals": "AWADDR, AWPROT, AWVALID, AWREADY, WDATA, WSTRB, WVALID, WREADY, BRESP, BVALID, BREADY, ARADDR, ARPROT, ARVALID, ARREADY, RDATA, RRESP, RVALID, RREADY"
+  },
+  {
+   "id": "CFG",
+   "name": "Task configuration",
+   "category": "custom",
+   "active": "u_csr -> u_ctrl",
+   "signals": "start [pulse], clr [pulse], x_base[31:0], wq_base[31:0], wk_base[31:0], wv_base[31:0], seq_len, cfg (num_heads, head_dim, mode)"
+  },
+  {
+   "id": "STS",
+   "name": "Task status",
+   "category": "custom",
+   "active": "u_ctrl -> u_csr",
+   "signals": "busy [level], task_done [pulse], task_err [pulse], err_code[2:0], perf_cyc_dma[31:0], perf_cyc_cmp[31:0], perf_bytes[31:0]"
+  },
+  {
+   "id": "REQ",
+   "name": "DMA request",
+   "category": "handshake (valid/ready)",
+   "active": "u_ctrl -> u_dma",
+   "signals": "req_valid, req_addr[31:0], req_len_bytes[31:0], req_dst_waddr[12:0], req_dst_sel (proposed); u_dma -> u_ctrl: req_ready, dma_done [pulse], dma_error [pulse], dma_err_code[2:0]"
+  },
+  {
+   "id": "MAXI",
+   "name": "AXI4 read",
+   "category": "standard (AXI4, read channels only)",
+   "active": "u_dma -> DRAM",
+   "signals": "ARADDR, ARLEN, ARSIZE, ARBURST, ARID, ARVALID, ARREADY; DRAM -> u_dma: RDATA, RRESP, RLAST, RID, RVALID, RREADY"
+  },
+  {
+   "id": "BWR",
+   "name": "BRAM write port",
+   "category": "custom",
+   "active": "u_dma -> u_bram_pp",
+   "signals": "we, waddr[12:0], din[255:0]; u_bram_pp -> u_dma: wr_ready [level], wr_done [pulse]"
+  },
+  {
+   "id": "XWR",
+   "name": "X load write port (proposed group)",
+   "category": "custom",
+   "active": "u_dma -> u_gemm",
+   "signals": "we, waddr, din[255:0] (destination of X still open)"
+  },
+  {
+   "id": "BRD",
+   "name": "BRAM read port",
+   "category": "custom",
+   "active": "u_gemm -> u_bram_pp",
+   "signals": "re, raddr[12:0], rd_done [pulse]; u_bram_pp -> u_gemm: dout[255:0], full[1:0]"
+  },
+  {
+   "id": "GCT",
+   "name": "GEMM control (proposed group)",
+   "category": "handshake (start/done)",
+   "active": "u_ctrl -> u_gemm",
+   "signals": "gemm_start [pulse], m_tiles, n_tiles, k_tiles, out_sel; u_gemm -> u_ctrl: gemm_done [pulse]"
+  },
+  {
+   "id": "SCT",
+   "name": "Softmax control (proposed group)",
+   "category": "handshake (start/done)",
+   "active": "u_ctrl -> u_softmax",
+   "signals": "smx_start [pulse], row_len; u_softmax -> u_ctrl: smx_done [pulse]"
+  },
+  {
+   "id": "RWR",
+   "name": "Result write (proposed group)",
+   "category": "custom",
+   "active": "u_gemm -> u_rbuf",
+   "signals": "we, waddr, wdata"
+  },
+  {
+   "id": "ORD",
+   "name": "Operand read (proposed group)",
+   "category": "custom",
+   "active": "u_gemm -> u_rbuf",
+   "signals": "re, raddr; u_rbuf -> u_gemm: rdata"
+  },
+  {
+   "id": "SMX",
+   "name": "Softmax buffer access (proposed group)",
+   "category": "custom",
+   "active": "u_softmax -> u_rbuf",
+   "signals": "re, raddr, we, waddr, wdata; u_rbuf -> u_softmax: rdata"
+  },
+  {
+   "id": "OUT",
+   "name": "Result output (open)",
+   "category": "custom",
+   "active": "u_rbuf -> outside",
+   "signals": "not decided: stream port, AXI4-Lite read or AXI4 write channel"
+  },
+  {
+   "id": "CLK",
+   "name": "Clock and reset",
+   "category": "custom",
+   "active": "external -> all blocks (distribution tree)",
+   "signals": "clk, rst (one clock domain assumed in v0)"
+  }
+ ],
+ "legend_note": "Architecture mode: drawn from project documents, not from RTL. [EXISTS] = block already written; [FIXED] = decided by Long; [PROPOSED] = Claude proposal; dashed outline = location or existence not decided. FG = functional group of the module own logic. [pulse] = one-cycle signal, [level] = held value."
+}

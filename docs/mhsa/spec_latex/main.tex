@@ -1,0 +1,1229 @@
+% main.tex -- Đặc tả MHSA Accelerator
+% Biên dịch: xelatex main.tex (chạy 2 lần để có mục lục)
+\documentclass[11pt,a4paper]{article}
+
+% ---------- Font và ngôn ngữ ----------
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{vietnamese}
+\setmainfont{Latin Modern Roman}
+\setsansfont{Latin Modern Sans}
+\setmonofont{Latin Modern Mono}
+\usepackage{amsmath,amssymb}
+\usepackage{newunicodechar}
+\newunicodechar{→}{\ensuremath{\rightarrow}}
+\newunicodechar{←}{\ensuremath{\leftarrow}}
+\newunicodechar{↔}{\ensuremath{\leftrightarrow}}
+\newunicodechar{≤}{\ensuremath{\le}}
+\newunicodechar{≥}{\ensuremath{\ge}}
+\newunicodechar{≈}{\ensuremath{\approx}}
+\newunicodechar{≠}{\ensuremath{\ne}}
+\newunicodechar{√}{\ensuremath{\surd}}
+\newunicodechar{ᵀ}{\ensuremath{^{\mathsf T}}}
+\newunicodechar{⁴}{\ensuremath{^{4}}}
+\newunicodechar{¹}{\ensuremath{^{1}}}
+\newunicodechar{⁻}{\ensuremath{^{-}}}
+\newunicodechar{∈}{\ensuremath{\in}}
+\newunicodechar{Σ}{\ensuremath{\Sigma}}
+\newunicodechar{▶}{\ensuremath{\blacktriangleright}}
+\newunicodechar{…}{\ldots}
+\newunicodechar{−}{\ensuremath{-}}
+
+% ---------- Bố cục ----------
+\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage{booktabs,longtable,array,xltabular}
+\usepackage{enumitem}
+\setlist{nosep,leftmargin=*}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{titlesec}
+\titleformat{\section}{\Large\bfseries\sffamily}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\large\bfseries\sffamily}{\thesubsection}{0.8em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\sffamily}{\thesubsubsection}{0.8em}{}
+\usepackage{fancyhdr}
+\pagestyle{fancy}\fancyhf{}
+\lhead{\small\sffamily MHSA Accelerator: đặc tả kiến trúc}
+\rhead{\small\sffamily v0.1 (bản nháp)}
+\cfoot{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\setlength{\parskip}{0.45em}\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.15}
+\setlength{\LTpre}{0.6em}\setlength{\LTpost}{0.6em}
+\keepXColumns
+% Cột: L{tỉ lệ} = cột canh trái rộng cố định (phần của \linewidth), Y = cột co giãn lấp phần còn lại
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1\linewidth}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\usepackage{etoolbox}
+\AtBeginEnvironment{xltabular}{\small\setlength{\tabcolsep}{4pt}}
+\let\oldus\_
+\renewcommand{\_}{\oldus\allowbreak}
+
+% ---------- Code ----------
+\usepackage{listings}
+\lstset{basicstyle=\ttfamily\small,columns=fullflexible,keepspaces=true,
+  frame=lines,framesep=4pt,xleftmargin=6pt,xrightmargin=6pt,
+  breaklines=true,aboveskip=0.8em,belowskip=0.8em,
+  backgroundcolor=\color{gray!6},rulecolor=\color{gray!50},
+  extendedchars=true,upquote=true}
+
+% ---------- Nhãn trạng thái ----------
+\newcommand{\statustag}[2]{\textsf{\footnotesize\bfseries\color{#1}[#2]}}
+\newcommand{\tagchot}{\statustag{ForestGreen}{CHỐT}}
+\newcommand{\tagcosan}{\statustag{NavyBlue}{CÓ SẴN}}
+\newcommand{\taggiadinh}{\statustag{BurntOrange}{GIẢ ĐỊNH}}
+\newcommand{\tagdexuat}{\statustag{Purple}{ĐỀ XUẤT}}
+
+% ---------- Pandoc helpers ----------
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage[hidelinks,unicode]{hyperref}
+
+\title{\sffamily\bfseries Đặc tả kiến trúc MHSA Accelerator\\[0.3em]
+\large\mdseries Multi-Head Self-Attention trên FPGA VC707, phiên bản v0.1 (bản nháp)}
+\author{Long Lê}
+\date{2 tháng 11 năm 2026}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+\noindent Tài liệu đặc tả kiến trúc vi mô (micro-architecture) của bộ tăng tốc
+Multi-Head Self-Attention (D = 768, 12 head × 64, INT8) điều khiển bởi CPU RISC-V trên
+Xilinx VC707: danh sách khối, chức năng, dataflow, bộ nhớ on-chip, giao diện, CSR map,
+clock/reset, ước lượng hiệu năng và các điểm còn mở. Các con số chu kỳ và BRAM là ước
+lượng tính tay, chưa tổng hợp và chưa mô phỏng.
+\end{abstract}
+\tableofcontents
+\clearpage
+
+Viết ngày 2026-11-02. Tài liệu này gom lại những gì bạn đã chốt (kiến
+trúc 2026-10-30, DMA v0, bram\_pp, GEMM của Minh) và lấp các chỗ còn
+trống bằng đề xuất của tôi. Chưa có RTL nào được viết theo tài liệu này;
+mọi con số chu kỳ và BRAM là \textbf{ước lượng tính tay}, chưa synth,
+chưa mô phỏng.
+
+\textbf{Cách đọc nhãn}
+
+\begin{xltabular}{\linewidth}{@{}L{0.16}Y@{}}
+\toprule
+\textbf{Nhãn} & \textbf{Nghĩa} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\tagchot{} & Bạn đã quyết định rõ \\
+\tagcosan{} & Khối đã có RTL (của bạn hoặc Minh), nhưng RTL không nằm trong project nên tên port ở đây là tên mô tả \\
+\taggiadinh{} & Tôi suy ra, cần bạn xác nhận \\
+\tagdexuat{} & Tôi đề xuất, bạn chưa đồng ý hay bác \\
+\textbf{MỞ-xx} & Câu hỏi còn mở, liệt kê đầy đủ ở §12 \\
+\end{xltabular}
+
+Muốn sửa chỗ nào thì cứ ghi đè lên bảng, hoặc ghi chú bên cạnh mã MỞ-xx,
+tôi sẽ cập nhật các phần liên quan cho khớp.
+
+\section{Phạm vi và thông số}
+
+\subsection{Accelerator làm gì}
+
+Tính \textbf{một lớp Multi-Head Self-Attention chuẩn} (bidirectional,
+không mask) cho một activation X:
+
+\begin{align*}
+Q &= X W_q + b_q, \quad K = X W_k + b_k, \quad V = X W_v + b_v && (S\times 768)\\
+\text{Score}_h &= Q_h K_h^{\mathsf T} / \sqrt{64} && (S\times S),\ h = 0,\dots,11\\
+P_h &= \operatorname{softmax}_{\text{hàng}}(\text{Score}_h) && (S\times S)\\
+O_h &= P_h V_h && (S\times 64)\\
+\text{Concat} &= [\,O_0 \mid O_1 \mid \cdots \mid O_{11}\,] && (S\times 768)\\
+\text{Out} &= \text{Concat}\, W_o + b_o \;(+\,X \text{ nếu bật residual}) && (S\times 768)
+\end{align*}
+
+\begin{xltabular}{\linewidth}{@{}L{0.25}L{0.52}Y@{}}
+\toprule
+\textbf{Hạng mục} & \textbf{Giá trị} & \textbf{Nhãn} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+Kiểu lớp & MHSA chuẩn, self-attention, không phải full Transformer & \tagchot{} \\
+D\_MODEL & 768 & \tagchot{} \\
+NUM\_HEADS × HEAD\_DIM & 12 × 64 & \tagchot{} \\
+S (số token, số hàng của activation X) & runtime ≤ \texttt{PARA\_S\_MAX}; đề xuất \texttt{PARA\_S\_MAX\ =\ 128}, S là bội số 32 & \tagdexuat{}, MỞ-01 \\
+LayerNorm, FFN & nằm ngoài accelerator & \taggiadinh{}, MỞ-02 \\
+Residual \texttt{+X} & có, bật/tắt bằng CSR & \tagdexuat{}, MỞ-02 \\
+Kiểu dữ liệu & INT8 cho X, W, Q, K, V, P, O; bias INT32; accumulator INT32 & \taggiadinh{}, MỞ-03 \\
+FPGA & Xilinx VC707 (xc7vx485t): 1030 BRAM36, 2800 DSP48E1 & \tagchot{} \\
+Clock mục tiêu & 200 MHz (control plane đã đạt WNS +0.548 ns ở 200 MHz) & \taggiadinh{}, MỞ-10 \\
+Chế độ chạy v0 & tuần tự: nạp xong mới tính & \tagchot{} \\
+\end{xltabular}
+
+\subsection{Không làm trong v0}
+
+\begin{itemize}
+\tightlist
+\item
+  Không mask (causal), không cross-attention, không KV cache.
+\item
+  Không ghi về DRAM bằng DMA (DMA chỉ đọc) \tagchot{}. Cách lấy kết quả
+  ra: xem §6.9 và MỞ-07.
+\item
+  Không overlap DMA với compute (cấu trúc đã sẵn sàng nhờ bram\_pp, bật
+  ở v1, xem §7.4).
+\end{itemize}
+
+\section{Tổng quan hệ thống và danh sách khối}
+
+\subsection{Mức SoC \tagcosan{}}
+
+\begin{lstlisting}
+ VexRiscv --dBus--> dbus_decoder --> DMEM (0x0000_xxxx)
+                         '--------> Bridge --AXI4-Lite--> u_acc (0x4000_0000)
+                                                              |
+                                                     AXI4 read (AR, R)
+                                                              v
+                                                     DRAM (MIG DDR3)
+\end{lstlisting}
+
+CPU chỉ ghi cấu hình, bấm START, poll DONE. CPU không bao giờ chạm vào
+tensor \tagchot{}. Trước START, tensor (X, W, bias) phải nằm sẵn trong
+DRAM với layout ở §3.3 (do CPU, UART của anh Lâm hoặc testbench nạp).
+
+\subsection{Bên trong accelerator (u\_acc, mhsa\_accelerator)}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{img/mhsa_acc_block.png}
+\caption{Sơ đồ khối \texttt{u\_acc} (\texttt{mhsa\_accelerator}).}
+\label{fig:block}
+\end{figure}
+
+Hình~\ref{fig:block} là sơ đồ khối bạn gửi, dùng làm chuẩn cho tên khối và tên bus
+trong toàn bộ tài liệu. Các khối phụ tôi đề xuất thêm (chọn toán hạng,
+hậu xử lý, demux đích của DMA, wrapper softmax, các buffer)
+\textbf{không} vẽ thành khối riêng mà nằm bên trong 7 khối của hình,
+dưới dạng nhóm chức năng (FG, functional group), để hình giữ nguyên.
+
+\subsection{Danh sách khối}
+
+\begin{xltabular}{\linewidth}{@{}L{0.04}L{0.15}L{0.24}L{0.25}L{0.08}Y@{}}
+\toprule
+\textbf{\#} & \textbf{Instance (module)} & \textbf{Chức năng tóm tắt} & \textbf{Nhóm chức năng bên trong (FG)} & \textbf{Ai viết} & \textbf{Nhãn} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+1 & u\_csr (acc\_csr\_axil) & AXI4-Lite slave: cấu hình, START/DONE/ERR, perf counter, cửa sổ đọc kết quả & thanh ghi, cửa sổ OUT & bạn & slave \tagcosan{}, map \tagdexuat{} \\
+2 & u\_ctrl (acc\_controller) & Sequencer: sinh request DMA, job GEMM, job softmax theo thứ tự §4 & FSM chính, job builder, watchdog, perf & bạn & vai trò \tagchot{}, FSM \tagdexuat{} \\
+3 & u\_dma (dma\_rd) & Đọc DRAM 1D (addr, len) qua AXI4, đóng gói thành từ 256 bit, ghi vào đích & 4 khối của \texttt{dma\_v0\_4block.md} + \textbf{dst demux} (chọn BWR hoặc XWR) & bạn & \tagchot{}, demux \tagdexuat{} \\
+4 & u\_bram\_pp (bram\_pp) & 2 bank 6144×256 ping-pong chứa chunk weight 768×256 & role FSM, write steering, read port & bạn & \tagcosan{} \\
+5 & u\_gemm (gemm\_core) & INT8 tile GEMM 32×32 + chọn toán hạng + hậu xử lý & lõi của Minh, \textbf{A\_buf} (X), \textbf{bias\_buf}, \textbf{opnd\_mux} (AGU), \textbf{postproc} (bias, requant, residual, transpose) & Minh & lõi \tagcosan{}, phần bọc \tagdexuat{} \\
+6 & u\_softmax (softmax) & Softmax theo hàng trên Score, ghi xác suất P & lõi softmax của bạn + \textbf{smx\_wrap} (đọc hàng, ghi hàng) & bạn & lõi \tagcosan{}, wrapper \tagdexuat{} \\
+7 & u\_rbuf (qkv\_buffer), nét đứt & Lưu kết quả trung gian giữa các pha & \textbf{Q\_buf, Kt\_buf, V\_buf, SC\_buf, P\_buf, C\_buf}, write mux, read mux & bạn & \tagdexuat{} \\
+\end{xltabular}
+
+\subsection{Các bus trong hình}
+
+\begin{xltabular}{\linewidth}{@{}L{0.09}L{0.22}L{0.52}Y@{}}
+\toprule
+\textbf{Bus} & \textbf{Từ → đến} & \textbf{Chở gì} & \textbf{Chi tiết} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+AXIL & CPU (Bridge) → u\_csr & AXI4-Lite slave & §6.1, §8 \\
+CFG & u\_csr → u\_ctrl & \texttt{start}, các trường cấu hình & §6.1 \\
+STS & u\_ctrl → u\_csr & \texttt{busy}, \texttt{task\_done}, \texttt{task\_err}, \texttt{err\_code}, perf & §6.1 \\
+REQ & u\_ctrl → u\_dma & request DMA (valid/ready) + \texttt{dma\_done}/\texttt{dma\_err} ngược lại & §6.2, §6.3 \\
+MAXI & u\_dma → DRAM & AXI4 chỉ đọc (AR, R) & §6.3 \\
+BWR & u\_dma → u\_bram\_pp & cổng ghi chunk W + \texttt{wr\_ready}, \texttt{wr\_done} & §6.4 \\
+XWR & u\_dma → u\_gemm & cổng ghi A\_buf (X) và bias\_buf, chọn bằng \texttt{dst\_sel} & §6.3, §6.5 \\
+BRD & u\_gemm → u\_bram\_pp & đọc toán hạng B (W) + \texttt{rd\_done}, \texttt{full} & §6.4 \\
+GCT & u\_ctrl → u\_gemm & job GEMM (valid/ready) + \texttt{gemm\_done} & §6.5 \\
+ORD & u\_gemm → u\_rbuf & đọc toán hạng từ Q\_buf, Kt\_buf, V\_buf, P\_buf, C\_buf & §6.7 \\
+RWR & u\_gemm → u\_rbuf & ghi kết quả đã hậu xử lý & §6.6, §6.7 \\
+SCT & u\_ctrl → u\_softmax & \texttt{smx\_start}, \texttt{rows}, \texttt{len} + \texttt{smx\_done} & §6.8 \\
+SMX & u\_softmax ↔ u\_rbuf & đọc SC\_buf, ghi P\_buf & §6.8 \\
+OUT & u\_rbuf → ngoài & kết quả Out (đang mở) & §6.9, MỞ-07 \\
+CLK & ngoài → mọi khối & \texttt{clk}, \texttt{rst} & §10 \\
+\end{xltabular}
+
+Đề xuất bổ sung vào hình nếu bạn đồng ý (chưa vẽ): đường \textbf{OUT →
+u\_csr} cho cửa sổ đọc kết quả v0 (§6.9).
+
+Tên module trong hình (\texttt{acc\_csr\_axil}, \texttt{dma\_rd},
+\ldots) chưa theo VLSIT rule
+(\texttt{m\_\textless{}function\textgreater{}}). Tài liệu này giữ tên
+trong hình; nếu bạn muốn theo rule thì đổi thành
+\texttt{m\_acc\_csr\_axil}, \texttt{m\_dma\_rd}, \ldots{} ở cả hình và
+code.
+
+\section{Kiểu số và định dạng dữ liệu}
+
+\subsection{Kiểu số {[}GIẢ ĐỊNH, MỞ-03{]}}
+
+\begin{xltabular}{\linewidth}{@{}L{0.14}L{0.25}Y@{}}
+\toprule
+\textbf{Tensor} & \textbf{Kiểu} & \textbf{Ghi chú} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+X, Wq, Wk, Wv, Wo & INT8 có dấu & Nếu sau này W4A8 thì chunk chỉ còn nửa bank (MỞ-03) \\
+bq, bk, bv, bo & INT32 có dấu & Đã nhân sẵn scale \texttt{s\_X·s\_W} bởi phần mềm \\
+Accumulator GEMM & INT32 (tối thiểu 25 bit) & K = 768: worst case 768·128·128 ≈ 12.6 M cần 25 bit có dấu \\
+Q, K, V & INT8 & Requant sau GEMM \\
+Score & INT16 (\texttt{PARA\_SC\_W\ =\ 16}) & Đầu vào softmax; độ rộng phụ thuộc lõi softmax của bạn (MỞ-04) \\
+P (xác suất) & INT8 trong khoảng 0..127 (scale 1/127) & Vì GEMM nhân có dấu, giữ P ≤ 127 để không phải sửa PE (MỞ-04) \\
+O\_h, Concat & INT8 &  \\
+Out & INT8 & (hoặc INT32 nếu LayerNorm ngoài cần độ chính xác cao, MỞ-02) \\
+\end{xltabular}
+
+\subsection{Requant (một công thức cho mọi stage) \tagdexuat{}}
+
+\begin{equation}
+y = \operatorname{sat}_N\!\Big( \big( (\mathit{acc} + \mathit{bias}[n]) \cdot M \big) \ggg \mathit{SH} \;(+\,\mathit{res}) \Big)
+\label{eq:requant}
+\end{equation}
+với phép dịch phải số học có làm tròn round-half-up.
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{M} 16 bit không dấu, \texttt{SH} 6 bit, mỗi stage có một cặp
+  (M, SH) riêng trong CSR (§8).
+\item
+  \texttt{1/√64\ =\ 1/8} gộp vào cặp (M, SH) của stage SCORE (cộng thêm
+  3 vào SH). Không cần mạch riêng.
+\item
+  \texttt{sat\_N}: bão hòa về INT8 {[}-128, 127{]} hoặc INT16 tùy stage.
+\item
+  Phép nhân 32×16 bit cần 2 DSP48E1/làn; 32 làn song song → khoảng 64
+  DSP (ước lượng).
+\end{itemize}
+
+\subsection{Layout dữ liệu}
+
+Quy ước chung: \textbf{1 từ = 256 bit = 32 phần tử INT8 liên tiếp của
+cùng một hàng ma trận}, phần tử có chỉ số cột nhỏ nằm ở bit thấp
+(\texttt{din{[}8*i\ +:\ 8{]}} = cột i). Đây là A6 của DMA v0 và phải
+khớp với cách GEMM của Minh đọc (MỞ-05).
+
+\begin{xltabular}{\linewidth}{@{}L{0.15}L{0.19}L{0.53}Y@{}}
+\toprule
+\textbf{Tensor} & \textbf{Nơi ở} & \textbf{Layout} & \textbf{Số từ (S = 128)} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+X & DRAM \texttt{X\_BASE} → A\_buf & Row-major S×768, 24 từ/hàng; địa chỉ từ = \texttt{r·24\ +\ j} & 3072 \\
+W\_m chunk c (m ∈ \{q,k,v,o\}, c = 0..2) & DRAM \texttt{W*\_BASE\ +\ c·196608} → bram\_pp & Cột \texttt{c·256\ ..\ c·256+255} của W, row-major 768×256, 8 từ/hàng; địa chỉ = \texttt{r·8\ +\ j} & 6144 \\
+bias & DRAM \texttt{BIAS\_BASE} → bias\_buf & bq{[}768{]}, bk{[}768{]}, bv{[}768{]}, bo{[}768{]} INT32 liên tiếp; 8 bias/từ & 384 \\
+Q, V, C & Q\_buf, V\_buf, C\_buf & Như X: 24 từ/hàng; head h = từ \texttt{2h}, \texttt{2h+1} của mỗi hàng & 3072 \\
+Kᵀ & Kt\_buf & Row-major 768×S (hàng = chiều d, cột = token), S/32 từ/hàng; head h = hàng \texttt{64h\ ..\ 64h+63} & 3072 \\
+Score\_h & SC\_buf & Row-major S×S INT16, từ 512 bit = 32 phần tử, S/32 từ/hàng (MỞ-04) & 512 \\
+P\_h & P\_buf & Row-major S×S INT8, S/32 từ/hàng & 512 \\
+\end{xltabular}
+
+\textbf{Phần mềm phải chuẩn bị} W trong DRAM theo chunk (không phải
+nguyên ma trận 768×768 row-major), vì DMA không có stride \tagchot{}.
+
+\section{Dataflow: thứ tự tính toán \tagdexuat{}}
+
+Head-serial, lưu Q/K/V on-chip, không ghi gì về DRAM. Mọi phép nhân ma
+trận đều đi qua \textbf{một} lõi GEMM duy nhất, chỉ đổi nguồn A, nguồn B
+và đích.
+
+\begin{xltabular}{\linewidth}{@{}L{0.09}L{0.21}L{0.11}L{0.17}L{0.09}L{0.18}Y@{}}
+\toprule
+\textbf{Pha} & \textbf{Job} & \textbf{A (S hàng)} & \textbf{B} & \textbf{k} & \textbf{Đích} & \textbf{Số lần} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+P0 & DMA bias → bias\_buf &  &  &  & bias\_buf & 1 \\
+P1 & DMA X → A\_buf &  &  &  & A\_buf & 1 \\
+P2 & Q = X·Wq + bq & A\_buf & bram\_pp (Wq chunk c) & 768 & Q\_buf cột \texttt{256c..} & c = 0..2 \\
+P3 & K = X·Wk + bk & A\_buf & bram\_pp (Wk chunk c) & 768 & Kt\_buf \textbf{chuyển vị} & c = 0..2 \\
+P4 & V = X·Wv + bv & A\_buf & bram\_pp (Wv chunk c) & 768 & V\_buf cột \texttt{256c..} & c = 0..2 \\
+P5a & Score\_h = Q\_h·K\_hᵀ & Q\_buf từ \texttt{2h..2h+1} & Kt\_buf hàng \texttt{64h..} & 64 & SC\_buf (INT16) & h = 0..11 \\
+P5b & P\_h = softmax(Score\_h) &  &  &  & P\_buf & h = 0..11 \\
+P5c & O\_h = P\_h·V\_h & P\_buf & V\_buf từ \texttt{2h..2h+1} & S & C\_buf cột \texttt{64h..} & h = 0..11 \\
+P6 & Out = C·Wo + bo (+X) & C\_buf & bram\_pp (Wo chunk c) & 768 & Q\_buf (tái dùng) & c = 0..2 \\
+P7 & CPU đọc Out &  &  &  & qua cửa sổ CSR &  \\
+\end{xltabular}
+
+Vì sao như vậy:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{K lưu chuyển vị} để Q\_h·K\_hᵀ đọc B theo hàng như mọi job
+  khác. Chuyển vị làm ở FG postproc trong u\_gemm bằng bộ đệm 1 tile
+  32×32 (§6.6), lõi GEMM không phải biết.
+\item
+  \textbf{V không cần chuyển vị}: B của P·V là V\_h, hàng k = token k,
+  đọc tự nhiên.
+\item
+  \textbf{Mỗi chunk 768×256 chứa đúng 4 head} (4 × 64 cột), nên P2--P4
+  không cần biết head.
+\item
+  \textbf{Out ghi đè vào Q\_buf}: sau P5 thì Q không còn dùng, tiết kiệm
+  24 BRAM36 ở S = 128. Nếu bạn muốn giữ Q để debug thì thêm O\_buf
+  riêng.
+\item
+  Residual cần X: trong P6, A đọc từ C\_buf nên cổng đọc A\_buf rảnh, FG
+  postproc đọc A\_buf (X) cùng địa chỉ hàng/từ với kết quả.
+\end{itemize}
+
+\section{Bộ nhớ on-chip}
+
+\subsection{Danh sách buffer}
+
+Tất cả là simple dual port BRAM (1 ghi, 1 đọc, đọc trễ 1 chu kỳ), cùng
+clock. Số BRAM36 tính theo cấu hình 512×72 (từ 256 bit = 4 BRAM36 song
+song, mỗi 512 từ thêm 1 tầng), làm tròn lên. \textbf{Ước lượng}, Vivado
+có thể gộp khác.
+
+\begin{xltabular}{\linewidth}{@{}L{0.22}L{0.14}L{0.09}L{0.19}L{0.11}Y@{}}
+\toprule
+\textbf{Buffer} & \textbf{Rộng × sâu (S = 128)} & \textbf{Byte} & \textbf{BRAM36 (S=64 / 128 / 256 / 512)} & \textbf{Ghi bởi} & \textbf{Đọc bởi} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+bram\_pp (2 bank) & 256 × 2·6144 & 393 216 & 96 / 96 / 96 / 96 & DMA & GEMM B \\
+A\_buf (X, trong u\_gemm; thay A\_bram 64 hàng) & 256 × S·24 & S·768 & 12 / 24 / 48 / 96 & DMA & GEMM A, postproc (residual) \\
+Q\_buf (rồi Out) & 256 × S·24 & S·768 & 12 / 24 / 48 / 96 & postproc & GEMM A, CSR window \\
+Kt\_buf & 256 × 768·S/32 & S·768 & 12 / 24 / 48 / 96 & postproc & GEMM B \\
+V\_buf & 256 × S·24 & S·768 & 12 / 24 / 48 / 96 & postproc & GEMM B \\
+C\_buf & 256 × S·24 & S·768 & 12 / 24 / 48 / 96 & postproc & GEMM A \\
+SC\_buf (INT16) & 512 × S·S/32 & 2·S² & 8 / 8 / 32 / 128 & postproc & smx\_wrap \\
+P\_buf & 256 × S·S/32 & S² & 4 / 4 / 16 / 64 & smx\_wrap & GEMM A \\
+bias\_buf (trong u\_gemm) & 256 × 384 & 12 288 & 4 / 4 / 4 / 4 & DMA & postproc \\
+\textbf{Tổng} &  & 946 176 B ở S = 128 & \textbf{172 / 232 / 388 / 772} &  &  \\
+\end{xltabular}
+
+So với 1030 BRAM36 của VC707 (đã dùng 17 cho SoC): S = 128 chiếm khoảng
+24\%, S = 256 khoảng 39\%, S = 512 khoảng 77\% (rủi ro routing). Vì vậy
+tôi đề xuất \texttt{PARA\_S\_MAX\ =\ 128} cho v0, tham số hóa để nâng
+lên 256 sau.
+
+\subsection{Ghi chú}
+
+\begin{itemize}
+\tightlist
+\item
+  A\_bram 64×768 bên trong lõi của Minh \textbf{không đủ} cho S = 128.
+  Đề xuất đưa A\_bram ra ngoài lõi thành A\_buf (§6.5). MỞ-06.
+\item
+  bram\_pp: mỗi bank đúng một chunk 768×256 INT8 \tagcosan{}. X
+  \textbf{không} đi vào bram\_pp (giải quyết mục 2 trong doc kiến trúc
+  2026-10-30).
+\item
+  Độ rộng địa chỉ: A\_buf ở S = 128 có 3072 từ (12 bit), S = 256 có 6144
+  từ (13 bit), S = 512 cần 14 bit. Đặt
+  \texttt{LPARA\_XBUF\_AW\ =\ \$clog2(PARA\_S\_MAX·24)}.
+\end{itemize}
+
+\section{Mô tả từng khối}
+
+Quy ước port theo VLSIT rule: \texttt{i\_}/\texttt{o\_}, clock
+\texttt{i\_clk\_core}, reset \texttt{i\_rst\_n\_core}. Cột "Kiểu" ghi
+\texttt{{[}pulse{]}} (1 chu kỳ) hoặc \texttt{{[}level{]}} (giữ mức).
+
+\subsection{u\_csr (acc\_csr\_axil)}
+
+\textbf{Chức năng:} AXI4-Lite slave. Giữ cấu hình tác vụ, sinh
+\texttt{start}, chốt DONE/ERR thành bit sticky, đếm hiệu năng, cung cấp
+cửa sổ đọc kết quả. Map ở §8.
+
+\textbf{Micro-architecture:}
+
+\begin{itemize}
+\tightlist
+\item
+  Tái dùng slave đã verify (28/28 read, 53/53 write). Slave hiện có 16
+  thanh ghi (0x00--0x3C); map §8 cần 32 thanh ghi (0x00--0x7C), nên phải
+  nới decode địa chỉ của slave lên 5 bit word index.
+\item
+  START tự xóa: ghi 1 tạo \texttt{o\_start} 1 chu kỳ; bị bỏ qua khi BUSY
+  = 1.
+\item
+  Chặn ghi các thanh ghi cấu hình khi BUSY = 1 (ghi vẫn trả OKAY nhưng
+  không đổi giá trị; hoặc trả SLVERR nếu bạn muốn, MỞ-09).
+\item
+  DONE/ERR sticky, xóa bằng W1C ở STATUS hoặc bit CLR. Không read-clear.
+\item
+  Cửa sổ đọc OUT: CPU ghi \texttt{OUT\_IDX} (chỉ số từ 32-bit trong
+  Q\_buf), đọc \texttt{OUT\_DATA}. Vì BRAM đọc trễ 1 chu kỳ, slave phải
+  chờ 1--2 chu kỳ trước khi trả RVALID cho OUT\_DATA (slave hiện tại trả
+  read trong 4 chu kỳ end-to-end, cần kiểm tra lại có chèn được không).
+\end{itemize}
+
+\textbf{Port}
+
+\begin{xltabular}{\linewidth}{@{}L{0.26}L{0.08}L{0.10}L{0.14}Y@{}}
+\toprule
+\textbf{Port} & \textbf{Hướng} & \textbf{Rộng} & \textbf{Kiểu} & \textbf{Ghi chú} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\texttt{i\_clk\_core} & in & 1 &  &  \\
+\texttt{i\_rst\_n\_core} & in & 1 &  &  \\
+\texttt{i\_axil\_*} & in &  &  & AW, W, B, AR, R chuẩn AXI4-Lite, ADDR 8 bit, DATA 32 bit \\
+\texttt{o\_axil\_*} & out &  &  &  \\
+\texttt{o\_start} & out & 1 & pulse &  \\
+\texttt{o\_cfg\_*} & out & xem §8 & level & ổn định trong suốt BUSY \\
+\texttt{i\_busy} & in & 1 & level & từ u\_ctrl \\
+\texttt{i\_task\_done} & in & 1 & pulse &  \\
+\texttt{i\_task\_err} & in & 1 & pulse &  \\
+\texttt{i\_err\_code} & in & 4 & level, hợp lệ khi \texttt{i\_task\_err} &  \\
+\texttt{i\_perf\_*} & in & 32 × 4 & level &  \\
+\texttt{o\_outwin\_rd\_en} & out & 1 & pulse & đọc Q\_buf (chỉ khi không BUSY) \\
+\texttt{o\_outwin\_addr} & out & 16 & level &  \\
+\texttt{i\_outwin\_rdata} & in & 32 &  & lane 32-bit đã chọn từ từ 256-bit \\
+\end{xltabular}
+
+\subsection{u\_ctrl (acc\_controller)}
+
+\textbf{Chức năng:} sau \texttt{start}, chạy hết thứ tự §4: sinh request
+DMA (addr, len, dst), sinh job GEMM (nguồn, đích, số tile, mode
+postproc), sinh job softmax, đếm hiệu năng, watchdog, báo DONE/ERR. FSM
+chi tiết ở §7.
+
+\textbf{Micro-architecture:}
+
+\begin{itemize}
+\tightlist
+\item
+  Một FSM chính + 3 bộ đếm vòng lặp: \texttt{reg\_mat} (0..3 = q, k, v,
+  o), \texttt{reg\_chunk} (0..2), \texttt{reg\_head} (0..11).
+\item
+  Một khối tổ hợp "job builder" tính các trường job từ (pha, mat, chunk,
+  head, S). Toàn bộ địa chỉ trong §4 là hàm của các bộ đếm này, nên
+  không cần bảng ROM.
+\item
+  Watchdog: một bộ đếm dùng chung, reset mỗi khi vào trạng thái WAIT\_*;
+  vượt \texttt{WDOG\_LIMIT} → ERR (code 6).
+\item
+  Perf counters: \texttt{cyc\_total}, \texttt{cyc\_dma\_wait},
+  \texttt{cyc\_gemm}, \texttt{cyc\_smx}.
+\end{itemize}
+
+\textbf{Port (phía DMA, GEMM, softmax)}
+
+\begin{xltabular}{\linewidth}{@{}L{0.26}L{0.08}L{0.10}L{0.14}Y@{}}
+\toprule
+\textbf{Port} & \textbf{Hướng} & \textbf{Rộng} & \textbf{Kiểu} & \textbf{Ghi chú} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\texttt{o\_dma\_req\_valid} & out & 1 & level & giữ đến khi \texttt{i\_dma\_req\_ready} \\
+\texttt{i\_dma\_req\_ready} & in & 1 & level &  \\
+\texttt{o\_dma\_req\_addr} & out & 32 & level &  \\
+\texttt{o\_dma\_req\_len} & out & 32 & level & byte, bội số 32 \\
+\texttt{o\_dma\_req\_dst\_sel} & out & 2 & level & 0 = bram\_pp, 1 = A\_buf, 2 = bias\_buf \\
+\texttt{o\_dma\_req\_dst\_waddr} & out & 14 & level & từ bắt đầu trong đích \\
+\texttt{i\_dma\_done} & in & 1 & pulse & chunk xong (từ cuối đã ghi) \\
+\texttt{i\_dma\_err} & in & 1 & pulse &  \\
+\texttt{i\_dma\_err\_code} & in & 3 & level &  \\
+\texttt{o\_job\_valid} & out & 1 & handshake & job GEMM, payload là struct \texttt{gemm\_job\_type\_def} ở §6.5 \\
+\texttt{i\_job\_ready} & in & 1 & handshake &  \\
+\texttt{i\_gemm\_done} & in & 1 & pulse & khi tile cuối đã ghi vào buffer đích (không phải khi PE xong) \\
+\texttt{o\_smx\_start} & out & 1 & pulse &  \\
+\texttt{o\_smx\_rows} & out & 9 & level & = S, S \\
+\texttt{o\_smx\_len} & out & 9 & level &  \\
+\texttt{i\_smx\_done} & in & 1 & pulse &  \\
+\end{xltabular}
+
+\subsection{u\_dma (dma\_rd)}
+
+\textbf{Chức năng:} copy một vùng DRAM liên tục (addr, len) vào một đích
+on-chip, chỉ đọc, 1 request tại một thời điểm \tagchot{}. Chi tiết 4
+khối con (CSR bỏ đi vì giờ CSR nằm ở u\_csr, còn lại legalizer, AR/R FSM
++ info FIFO, packer/writer) giữ nguyên như
+\texttt{dma/dma\_v0\_4block.md}.
+
+\textbf{Thay đổi so với \texttt{dma\_v0\_4block.md}:}
+
+\begin{xltabular}{\linewidth}{@{}L{0.08}L{0.15}L{0.56}Y@{}}
+\toprule
+\textbf{Mục} & \textbf{v0 4-block} & \textbf{Spec này} & \textbf{Nhãn} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+Nguồn lệnh & CSR riêng của DMA & Cổng request từ u\_ctrl (valid/ready) & \tagchot{} theo doc 2026-10-30 \\
+Đích & chỉ bram\_pp & \texttt{dst\_sel} chọn bram\_pp / A\_buf / bias\_buf & \tagdexuat{} \\
+\texttt{waddr} & 13 bit & 14 bit (để A\_buf với S = 512) & \tagdexuat{} \\
+\texttt{wr\_ready} & luôn từ bram\_pp & chỉ kiểm khi \texttt{dst\_sel\ =\ 0}; A\_buf và bias\_buf luôn sẵn sàng & \tagdexuat{} \\
+CHECK & \texttt{dst\ +\ len/32\ ≤\ 6144} & giới hạn theo từng đích (6144 / S\_MAX·24 / 384) & \tagdexuat{} \\
+Bus & 32 bit debug & tham số \texttt{PARA\_AXI\_DATA\_W} ∈ \{32, 512\}: legalizer chia 4 KB theo \texttt{\textgreater{}\textgreater{}\ \$clog2(DATA\_W/8)}, packer gom \texttt{256/DATA\_W} beat (32 bit: 8 beat → 1 từ) hoặc tách 1 beat 512 → 2 từ & \tagchot{} mục tiêu 512 \\
+\end{xltabular}
+
+\textbf{Port ngoài}
+
+\begin{xltabular}{\linewidth}{@{}L{0.30}L{0.08}L{0.11}Y@{}}
+\toprule
+\textbf{Port} & \textbf{Hướng} & \textbf{Rộng} & \textbf{Ghi chú} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\texttt{o\_axi\_arid} & out & 1 & = 0 \\
+\texttt{o\_axi\_araddr} & out & 32 &  \\
+\texttt{o\_axi\_arlen} & out & 8 & số beat $-$ 1 \\
+\texttt{o\_axi\_arsize} & out & 3 & = log2(DATA\_W/8) \\
+\texttt{o\_axi\_arburst} & out & 2 & = INCR (2'b01) \\
+\texttt{o\_axi\_arlock} & out & 1 & = 0 \\
+\texttt{o\_axi\_arcache} & out & 4 & = 4'b0011 \\
+\texttt{o\_axi\_arprot} & out & 3 & = 0 \\
+\texttt{o\_axi\_arqos} & out & 4 & = 0 \\
+\texttt{o\_axi\_arvalid} & out & 1 &  \\
+\texttt{i\_axi\_arready} & in & 1 &  \\
+\texttt{i\_axi\_rid} & in & 1 &  \\
+\texttt{i\_axi\_rdata} & in & DATA\_W & 32 (debug) hoặc 512 \\
+\texttt{i\_axi\_rresp} & in & 2 &  \\
+\texttt{i\_axi\_rlast} & in & 1 &  \\
+\texttt{i\_axi\_rvalid} & in & 1 &  \\
+\texttt{o\_axi\_rready} & out & 1 &  \\
+\texttt{i\_req\_*} &  &  & xem §6.2 \\
+\texttt{o\_req\_ready} &  &  &  \\
+\texttt{o\_done} & out & 1 & xem §6.2 \\
+\texttt{o\_err} & out & 1 &  \\
+\texttt{o\_err\_code} & out & 3 &  \\
+\texttt{o\_wr\_en} & out & 1 & tới FG dst demux (bên trong u\_dma) \\
+\texttt{o\_wr\_addr} & out & 14 &  \\
+\texttt{o\_wr\_data} & out & 256 &  \\
+\texttt{o\_wr\_dst\_sel} & out & 2 &  \\
+\texttt{i\_pp\_wr\_ready} & in & 1 & từ bram\_pp \\
+\texttt{i\_pp\_wr\_done} & in & 1 &  \\
+\end{xltabular}
+
+Mã lỗi (\texttt{o\_err\_code}): 1 = cấu hình sai (len = 0, không bội 32,
+tràn đích), 2 = SLVERR, 3 = DECERR, 4 = RLAST sai. Khi lỗi, R FSM vẫn
+\textbf{drain} hết beat đang bay rồi mới báo.
+
+\subsection{FG dst demux của u\_dma, và u\_bram\_pp (bus BWR, BRD)}
+
+\textbf{FG dst demux trong u\_dma \tagdexuat{}:} thuần tổ hợp.
+\texttt{wr\_en} đi tới đúng một đích theo \texttt{dst\_sel}: 0 → BWR
+(bram\_pp), 1 và 2 → XWR (A\_buf hoặc bias\_buf trong u\_gemm);
+\texttt{wr\_addr}, \texttt{wr\_data} nối chung. Không có trạng thái.
+
+\textbf{u\_bram\_pp {[}CÓ SẴN, của bạn{]}:} 2 bank 6144×256. Role FSM
+giữ \texttt{wr\_bank}, \texttt{rd\_bank}, \texttt{full{[}1:0{]}}; đảo
+\texttt{wr\_bank} khi ghi xong từ 6143 (\texttt{wr\_done}), đảo
+\texttt{rd\_bank} khi GEMM báo \texttt{rd\_done}; mux đầu ra dùng
+\texttt{rd\_bank} trễ 1 chu kỳ.
+
+\begin{xltabular}{\linewidth}{@{}L{0.30}L{0.08}L{0.11}Y@{}}
+\toprule
+\textbf{Port} & \textbf{Hướng} & \textbf{Rộng} & \textbf{Kiểu} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\texttt{we} & in & 1 & từ demux \\
+\texttt{waddr} & in & 13 & từ demux \\
+\texttt{din} & in & 256 & từ demux \\
+\texttt{wr\_ready} & out & 1 & level: còn bank trống \\
+\texttt{wr\_done} & out & 1 & pulse: một bank vừa đầy \\
+\texttt{re} & in & 1 & từ FG opnd\_mux của u\_gemm (bus BRD) \\
+\texttt{raddr} & in & 13 & từ FG opnd\_mux của u\_gemm (bus BRD) \\
+\texttt{dout} & out & 256 & trễ 1 chu kỳ \\
+\texttt{rd\_done} & in & 1 & pulse: GEMM dùng xong chunk \\
+\texttt{full{[}1:0{]}} & out & 2 & level \\
+\end{xltabular}
+
+Lưu ý cho FSM: trong một job projection, GEMM đọc lại cùng chunk
+\texttt{S/32} lần (k trong cùng, m ngoài). Vì vậy \texttt{rd\_done} chỉ
+được phát \textbf{một lần} khi job xong, do u\_ctrl (hoặc FG opnd\_mux)
+phát chứ không phải do mỗi lần đọc hết bank.
+
+\subsection{u\_gemm (gemm\_core): lõi của Minh, A\_buf, bias\_buf, FG
+opnd\_mux (bus GCT, XWR, BRD, ORD)}
+
+\textbf{Lõi GEMM \tagcosan{}:} INT8, TILE = 32. Mỗi chu kỳ đọc 1 từ A
+và 1 từ B, outer product 32 chu kỳ/tile pair, accumulate chồng lên load,
+khoảng 33 chu kỳ/tile pair ở trạng thái ổn định. Chỉ giữ 1 tile C nên k
+ở vòng trong cùng. Thứ tự vòng lặp n → m → k → row.
+
+\textbf{Thay đổi cần trao đổi với Minh {[}ĐỀ XUẤT, MỞ-06{]}:}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Đưa A\_bram và B\_bram ra ngoài lõi: lõi chỉ còn 2 cổng đọc
+  (\texttt{o\_a\_rd\_en}, \texttt{o\_a\_rd\_idx},
+  \texttt{i\_a\_rd\_data}; tương tự cho B) với trễ đọc 1 chu kỳ cố định.
+\item
+  Số tile \texttt{m\_tiles}, \texttt{n\_tiles}, \texttt{k\_tiles} nhận
+  lúc runtime (từ job) thay vì hằng số.
+\item
+  Đầu ra: phát tile C (INT32) theo hàng, 32 phần tử/chu kỳ, kèm
+  \texttt{o\_c\_valid}, \texttt{o\_c\_row} (0..31), \texttt{o\_c\_mt},
+  \texttt{o\_c\_nt}, \texttt{o\_c\_last}. Bias \textbf{không} cộng trong
+  lõi (để FG postproc làm) để lõi Minh sửa ít nhất.
+\item
+  Accumulator ≥ 25 bit có dấu (khuyên 32).
+\end{enumerate}
+
+\textbf{FG opnd\_mux \tagdexuat{}:} lõi chỉ phát chỉ số logic (hàng
+trong tile, k-tile, m-tile hoặc n-tile); FG opnd\_mux đổi thành địa chỉ
+vật lý của buffer được chọn:
+
+\begin{align*}
+\text{addr}_A &= A_{\text{BASE}} + (mt\cdot 32 + \mathit{row})\cdot A_{\text{ROW\_WORDS}} + kt\\
+\text{addr}_B &= B_{\text{BASE}} + (kt\cdot 32 + \mathit{row})\cdot B_{\text{ROW\_WORDS}} + nt
+\end{align*}
+
+Ví dụ các job (S = 128):
+
+\begin{xltabular}{\linewidth}{@{}L{0.17}L{0.15}L{0.09}L{0.10}L{0.09}L{0.09}L{0.10}Y@{}}
+\toprule
+\textbf{Job} & \textbf{A\_SEL} & \textbf{A\_BASE} & \textbf{A\_ROW\_WORDS} & \textbf{B\_SEL} & \textbf{B\_BASE} & \textbf{B\_ROW\_WORDS} & \textbf{m/n/k tiles} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+Q/K/V/Out chunk c & A\_buf (Out: C\_buf) & 0 & 24 & bram\_pp & 0 & 8 & 4 / 8 / 24 \\
+Score head h & Q\_buf & 2h & 24 & Kt\_buf & 64h·4 & 4 (= S/32) & 4 / 4 / 2 \\
+P·V head h & P\_buf & 0 & 4 (= S/32) & V\_buf & 2h & 24 & 4 / 2 / 4 \\
+\end{xltabular}
+
+\textbf{Kiểm tra quan trọng (MỞ-05):} công thức trên giả định lõi đọc A
+theo \textbf{từ = 32 phần tử của một hàng}. Nếu outer product của Minh
+cần \textbf{cột} của tile A mỗi chu kỳ (32 phần tử cùng cột k, 32 hàng
+khác nhau) thì lõi phải có bộ chuyển vị tile A bên trong, hoặc A phải
+lưu chuyển vị. Ghi chú cũ trong project mâu thuẫn nhau ở điểm này, cần
+xem lại RTL của Minh.
+
+\textbf{Cấu trúc job (\texttt{gemm\_job\_type\_def}) \tagdexuat{}}
+
+\begin{xltabular}{\linewidth}{@{}L{0.30}L{0.10}Y@{}}
+\toprule
+\textbf{Trường} & \textbf{Rộng} & \textbf{Ý nghĩa} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\texttt{a\_sel} & 2 & 0 = A\_buf, 1 = Q\_buf, 2 = P\_buf, 3 = C\_buf \\
+\texttt{a\_base} & 14 &  \\
+\texttt{a\_row\_words} & 6 &  \\
+\texttt{b\_sel} & 2 & 0 = bram\_pp, 1 = Kt\_buf, 2 = V\_buf \\
+\texttt{b\_base} & 14 &  \\
+\texttt{b\_row\_words} & 6 &  \\
+\texttt{m\_tiles} & 5 & m ≤ S\_MAX/32, n ≤ 8, k ≤ 24 \\
+\texttt{n\_tiles} & 5 &  \\
+\texttt{k\_tiles} & 5 &  \\
+\texttt{out\_sel} & 3 & 0 = Q\_buf, 1 = Kt\_buf, 2 = V\_buf, 3 = SC\_buf, 4 = C\_buf \\
+\texttt{out\_base} & 14 &  \\
+\texttt{out\_row\_words} & 6 &  \\
+\texttt{pp\_stage} & 3 & chọn cặp (M, SH), độ rộng ra, bias có/không \\
+\texttt{bias\_base} & 9 & chỉ số bias đầu tiên (= mat·768 + c·256) \\
+\texttt{out\_transpose} & 1 & 1 cho job K \\
+\texttt{add\_res} & 1 & 1 cho job Out khi bật residual \\
+\texttt{pp\_rd\_done} & 1 & 1 nếu job này phải phát \texttt{rd\_done} cho bram\_pp khi xong \\
+\end{xltabular}
+
+\subsection{FG postproc của u\_gemm \tagdexuat{} (bus RWR)}
+
+\textbf{Chức năng:} nhận từng hàng tile C INT32 từ lõi, cộng bias theo
+cột, requant (§3.2), cộng residual, bão hòa, ghi ra buffer đích; với job
+K thì chuyển vị tile trước khi ghi.
+
+\textbf{Micro-architecture:}
+
+\begin{itemize}
+\tightlist
+\item
+  Pipeline 4 tầng (đề xuất): (1) đọc bias\_buf + cộng bias, (2) nhân M
+  (32 làn, 2 DSP/làn), (3) dịch + làm tròn + residual, (4) bão hòa +
+  đóng gói 256 bit.
+\item
+  Bias: 1 tile có 32 cột = 4 từ bias\_buf; đọc trước 4 từ khi bắt đầu
+  tile mới (thời gian rảnh rất nhiều: 1 tile ra mỗi \texttt{33·k\_tiles}
+  chu kỳ).
+\item
+  Chuyển vị: thanh ghi 32×32×8 bit (8192 FF). Ghi 32 hàng, đọc 32 cột.
+  Với job K, tile ra mỗi 33·24 = 792 chu kỳ nên một buffer (không
+  ping-pong) đủ thời gian.
+\item
+  Score INT16: ghi từ 512 bit, hoặc 2 từ 256 bit liên tiếp (MỞ-04).
+\item
+  Residual: đọc A\_buf tại (hàng, từ) của tile hiện tại, trễ 1 chu kỳ,
+  dùng hàng đợi 2 tầng để căn với pipeline.
+\item
+  Phát \texttt{o\_job\_done} khi từ cuối của tile cuối đã ghi xong;
+  u\_ctrl dùng tín hiệu này làm \texttt{gemm\_done}.
+\end{itemize}
+
+\begin{xltabular}{\linewidth}{@{}L{0.30}L{0.08}L{0.11}Y@{}}
+\toprule
+\textbf{Port} & \textbf{Hướng} & \textbf{Rộng} & \textbf{Ghi chú} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\texttt{i\_c\_valid} & in & 1 & từ lõi GEMM \\
+\texttt{i\_c\_row} & in & 5 &  \\
+\texttt{i\_c\_mt} & in & 5 &  \\
+\texttt{i\_c\_nt} & in & 5 &  \\
+\texttt{i\_c\_last} & in & 1 &  \\
+\texttt{i\_c\_data} & in & 32 × 32 &  \\
+\texttt{i\_job} (các trường out\_\emph{, pp\_}, bias\_base, add\_res, out\_transpose) & in &  & chốt khi job bắt đầu \\
+\texttt{i\_qnt\_m{[}0:5{]}} & in & 16 & từ CSR \\
+\texttt{i\_qnt\_sh{[}0:5{]}} & in & 6 &  \\
+\texttt{o\_bias\_rd\_en} & out & 1 &  \\
+\texttt{o\_bias\_rd\_addr} & out & 9 &  \\
+\texttt{i\_bias\_rd\_data} & in & 256 &  \\
+\texttt{o\_res\_rd\_en} & out & 1 & A\_buf \\
+\texttt{o\_res\_rd\_addr} & out & 14 &  \\
+\texttt{i\_res\_rd\_data} & in & 256 &  \\
+\texttt{o\_wr\_en} & out & 1 & bus RWR tới u\_rbuf \\
+\texttt{o\_wr\_sel} & out & 3 &  \\
+\texttt{o\_wr\_addr} & out & 14 &  \\
+\texttt{o\_wr\_data} & out & 512 &  \\
+\texttt{o\_job\_done} & out & 1 & pulse \\
+\end{xltabular}
+
+Tối ưu sau (tùy chọn): một tile có 1024 phần tử và job ngắn nhất (Score,
+k\_tiles = 2) ra 1 tile mỗi 66 chu kỳ, nên chỉ cần khoảng 16 làn nhân
+thay vì 32 (giảm DSP từ \textasciitilde64 xuống \textasciitilde32). Làm
+vậy thì đầu ra lõi GEMM phải chờ được (cần \texttt{ready} hoặc FIFO),
+nên v0 cứ để 32 làn cho đơn giản.
+
+\subsection{u\_rbuf (qkv\_buffer) và các buffer (bus ORD, RWR, SMX)}
+
+\textbf{Write mux trong u\_rbuf \tagdexuat{}:} tổ hợp, chọn buffer đích
+theo \texttt{o\_wr\_sel}. Mỗi buffer chỉ có \textbf{một} nguồn ghi tại
+mọi thời điểm (DMA hoặc postproc hoặc smx\_wrap), nên không cần arbiter;
+u\_ctrl bảo đảm không bao giờ có 2 job ghi cùng buffer.
+
+\textbf{sram\_sdp \tagdexuat{}:} một module BRAM chung, tham số
+\texttt{PARA\_DATA\_W}, \texttt{PARA\_DEPTH}, đọc đồng bộ trễ 1 chu kỳ,
+suy luận được thành BRAM (không reset dữ liệu). Tất cả buffer §5 là
+instance của module này.
+
+Cổng đọc của mỗi buffer chọn người đọc bằng mux theo job hiện tại:
+
+\begin{xltabular}{\linewidth}{@{}L{0.23}L{0.54}Y@{}}
+\toprule
+\textbf{Buffer} & \textbf{Người đọc} & \textbf{Chọn bởi} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+A\_buf & GEMM A (P2--P4), postproc residual (P6) & pha \\
+Q\_buf & GEMM A (P5a), CSR window (sau DONE) & BUSY \\
+Kt\_buf, V\_buf & GEMM B & b\_sel \\
+C\_buf, P\_buf & GEMM A & a\_sel \\
+SC\_buf & smx\_wrap &  \\
+bias\_buf & postproc &  \\
+\end{xltabular}
+
+\subsection{u\_softmax (softmax): lõi của bạn + FG smx\_wrap (bus SCT,
+SMX)}
+
+\textbf{Chức năng:} với mỗi head, xử lý S hàng của SC\_buf: đọc hàng,
+chạy softmax, ghi hàng P (INT8 0..127) vào P\_buf.
+
+\textbf{Micro-architecture {[}ĐỀ XUẤT, phụ thuộc lõi softmax của bạn,
+MỞ-04{]}:}
+
+\begin{itemize}
+\tightlist
+\item
+  Softmax ổn định số cần max của hàng trước:
+  \texttt{p\_i\ =\ exp(s\_i\ −\ max)\ /\ Σ\ exp(s\_j\ −\ max)}. Nếu lõi
+  của bạn là kiểu nhiều lượt (max → tổng exp → chuẩn hóa), wrapper đọc
+  lại cùng một hàng 2--3 lần từ SC\_buf; việc này rẻ vì hàng chỉ có S
+  phần tử.
+\item
+  Wrapper giao tiếp với lõi bằng stream valid/ready:
+  \texttt{o\_smx\_in\_valid},
+  \texttt{o\_smx\_in\_data{[}PAR·SC\_W-1:0{]}},
+  \texttt{o\_smx\_in\_last}; ngược lại \texttt{i\_smx\_out\_valid},
+  \texttt{i\_smx\_out\_data{[}PAR·8-1:0{]}}, \texttt{i\_smx\_out\_last}.
+\item
+  Thông lượng \texttt{PARA\_SMX\_PAR} phần tử/chu kỳ. Đây là nút cổ chai
+  của pha attention (§11): với PAR = 1, softmax tốn S² chu kỳ/head, gấp
+  khoảng 8 lần GEMM của cùng head.
+\item
+  P ghi về P\_buf theo từ 256 bit (gom 32 xác suất).
+\end{itemize}
+
+\begin{xltabular}{\linewidth}{@{}L{0.30}L{0.08}L{0.11}Y@{}}
+\toprule
+\textbf{Port (phía u\_ctrl và buffer)} & \textbf{Hướng} & \textbf{Rộng} & \textbf{Kiểu} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\texttt{i\_start} & in & 1 & pulse, level \\
+\texttt{i\_rows} & in & 9 & pulse, level \\
+\texttt{i\_len} & in & 9 & pulse, level \\
+\texttt{o\_done} & out & 1 & pulse \\
+\texttt{o\_sc\_rd\_en} & out & 1 &  \\
+\texttt{o\_sc\_rd\_addr} & out & 13 &  \\
+\texttt{i\_sc\_rd\_data} & in & 512 &  \\
+\texttt{o\_p\_wr\_en} & out & 1 &  \\
+\texttt{o\_p\_wr\_addr} & out & 13 &  \\
+\texttt{o\_p\_wr\_data} & out & 256 &  \\
+\end{xltabular}
+
+\subsection{Đường ra kết quả {[}ĐỀ XUẤT, MỞ-07{]}}
+
+v0: Out nằm trong Q\_buf sau DONE, CPU đọc qua
+\texttt{OUT\_IDX}/\texttt{OUT\_DATA} (từ 32 bit). S = 128: 24 576 lần
+đọc, mỗi lần khoảng 10 chu kỳ CPU + bridge, khoảng 1.2 ms ở 200 MHz. Đủ
+cho bring-up và so golden model, không đủ cho đo hiệu năng end-to-end.
+
+v1 (gợi ý): thêm \texttt{dma\_wr} (kênh AW/W/B) ghi Q\_buf về DRAM, dùng
+chung legalizer.
+
+\section{Controller FSM \tagdexuat{}}
+
+\subsection{Danh sách trạng thái}
+
+\begin{xltabular}{\linewidth}{@{}L{0.14}L{0.25}Y@{}}
+\toprule
+\textbf{State} & \textbf{Làm gì} & \textbf{Chuyển khi} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\texttt{ENUM\_ST\_IDLE} & BUSY = 0 & \texttt{start} → LD\_BIAS \\
+\texttt{ENUM\_ST\_LD\_BIAS} & Phát DMA req (BIAS\_BASE, 12288, dst = bias\_buf, 0) & req accept → W\_BIAS \\
+\texttt{ENUM\_ST\_W\_BIAS} & Chờ & \texttt{dma\_done} → LD\_X \\
+\texttt{ENUM\_ST\_LD\_X} & DMA req (X\_BASE, S·768, A\_buf, 0) & accept → W\_X \\
+\texttt{ENUM\_ST\_W\_X} & Chờ & \texttt{dma\_done} → LD\_W (mat = 0, c = 0) \\
+\texttt{ENUM\_ST\_LD\_W} & DMA req (W\_BASE{[}mat{]} + c·196608, 196608, bram\_pp, 0) & accept → W\_W \\
+\texttt{ENUM\_ST\_W\_W} & Chờ & \texttt{dma\_done} → GEMM\_PROJ \\
+\texttt{ENUM\_ST\_GEMM\_PROJ} & Phát job projection (mat, c), \texttt{pp\_rd\_done\ =\ 1} & job accept → W\_PROJ \\
+\texttt{ENUM\_ST\_W\_PROJ} & Chờ & \texttt{gemm\_done}: nếu c \textless{} 2 thì c++ → LD\_W. Nếu c = 2 thì c = 0 và: mat = 0 hoặc 1 → mat++, LD\_W; mat = 2 (xong V) → SCORE (h = 0); mat = 3 (xong Wo) → DONE. (mat: 0 = q, 1 = k, 2 = v, 3 = o) \\
+\texttt{ENUM\_ST\_SCORE} & Job Score head h & accept → W\_SCORE \\
+\texttt{ENUM\_ST\_W\_SCORE} & Chờ & \texttt{gemm\_done} → SMX \\
+\texttt{ENUM\_ST\_SMX} & \texttt{smx\_start} & → W\_SMX \\
+\texttt{ENUM\_ST\_W\_SMX} & Chờ & \texttt{smx\_done} → PV \\
+\texttt{ENUM\_ST\_PV} & Job P·V head h & accept → W\_PV \\
+\texttt{ENUM\_ST\_W\_PV} & Chờ & \texttt{gemm\_done}: h++; h \textless{} 12 → SCORE; h = 12 → LD\_W (mat = 3, c = 0) \\
+\texttt{ENUM\_ST\_DONE} & pulse \texttt{task\_done} & → IDLE \\
+\texttt{ENUM\_ST\_ERR} & pulse \texttt{task\_err}, chốt \texttt{err\_code} & → IDLE \\
+\end{xltabular}
+
+Mọi trạng thái \texttt{W\_*} có watchdog; mọi \texttt{dma\_err} ở bất kỳ
+trạng thái nào → ERR. v0 không retry (MỞ-09).
+
+\subsection{Trình tự dạng giả mã}
+
+\begin{lstlisting}
+LD_BIAS; LD_X
+for mat in {q, k, v}:  for c in 0..2:  LD_W(mat, c); GEMM_PROJ(mat, c)
+for h in 0..11:        SCORE(h); SMX(h); PV(h)
+for c in 0..2:         LD_W(o, c); GEMM_PROJ(o, c)
+DONE
+\end{lstlisting}
+
+\subsection{\texorpdfstring{Mã lỗi (\texttt{ERR\_CODE}, 4
+bit)}{Mã lỗi (ERR\_CODE, 4 bit)}}
+
+\begin{xltabular}{\linewidth}{@{}L{0.12}Y@{}}
+\toprule
+\textbf{Mã} & \textbf{Nghĩa} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+1 & Cấu hình sai: S = 0, S \textgreater{} S\_MAX, S không bội 32, địa chỉ không align 64 B (kiểm lúc START) \\
+2 & DMA: SLVERR \\
+3 & DMA: DECERR \\
+4 & DMA: RLAST sai \\
+5 & DMA: cấu hình request sai (lỗi nội bộ controller) \\
+6 & Watchdog timeout (\texttt{ERR\_INFO} ghi state đang chờ) \\
+\end{xltabular}
+
+\subsection{Nâng cấp v1: overlap nạp W với tính toán}
+
+bram\_pp đã sẵn sàng: khi GEMM đang đọc bank A, DMA ghi chunk kế vào
+bank B. Để bật, tách u\_ctrl thành 2 FSM độc lập: \textbf{loader} (phát
+LD\_W cho 12 chunk theo thứ tự, mỗi lần chờ \texttt{wr\_ready}) và
+\textbf{compute} (chờ \texttt{full{[}rd\_bank{]}} rồi phát job). Loader
+chạy trước compute tối đa 1 chunk. Trong pha attention (P5) loader nạp
+sẵn Wo chunk 0. Lợi ích chỉ đáng kể khi DMA chậm (bus 32 bit), xem §11.
+
+\section{CSR map \tagdexuat{}}
+
+Base 0x4000\_0000. Mở rộng từ bảng trong doc kiến trúc 2026-10-30. Tất
+cả thanh ghi 32 bit. "RW*" = ghi bị chặn khi BUSY.
+
+\begin{xltabular}{\linewidth}{@{}L{0.08}L{0.17}L{0.08}L{0.30}L{0.11}Y@{}}
+\toprule
+\textbf{Offset} & \textbf{Tên} & \textbf{Quyền} & \textbf{Bit} & \textbf{Reset} & \textbf{Ý nghĩa} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+0x00 & CTRL & W & {[}0{]} START (tự xóa), {[}1{]} CLR & 0 &  \\
+0x04 & STATUS & R/W1C & {[}0{]} BUSY, {[}1{]} DONE, {[}2{]} ERR, {[}6:3{]} ERR\_CODE & 0 & DONE = \texttt{task\_done} cả tác vụ, không phải từng chunk \\
+0x08 & X\_BASE & RW* & {[}31:0{]} & 0 & align 64 B \\
+0x0C & WQ\_BASE & RW* &  & 0 & 3 chunk liên tiếp, chunk c tại \texttt{+c·196608} \\
+0x10 & WK\_BASE & RW* &  & 0 &  \\
+0x14 & WV\_BASE & RW* &  & 0 &  \\
+0x18 & WO\_BASE & RW* &  & 0 & \textbf{mới}: Wo \\
+0x1C & BIAS\_BASE & RW* &  & 0 & \textbf{mới}: bq, bk, bv, bo INT32 liên tiếp, 12 288 B \\
+0x20 & SEQ\_LEN & RW* & {[}9:0{]} S & 0 & bội 32, 32 ≤ S ≤ S\_MAX \\
+0x24 & CFG & RW* & {[}0{]} RES\_EN, {[}1{]} BIAS\_EN & 0x2 & NUM\_HEADS, HEAD\_DIM cố định lúc synth \\
+0x28 & QNT\_Q & RW* & {[}15:0{]} M, {[}21:16{]} SH & 0 & requant Q \\
+0x2C & QNT\_K & RW* &  & 0 &  \\
+0x30 & QNT\_V & RW* &  & 0 &  \\
+0x34 & QNT\_SC & RW* &  & 0 & gộp 1/√64 vào đây \\
+0x38 & QNT\_PV & RW* &  & 0 &  \\
+0x3C & QNT\_OUT & RW* &  & 0 &  \\
+0x40 & WDOG\_LIMIT & RW* & {[}31:0{]} & 0x0010\_0000 & chu kỳ \\
+0x44 & ERR\_INFO & R & {[}4:0{]} state lúc lỗi, {[}8:5{]} mat/head & 0 & debug \\
+0x48 & PERF\_CYC\_TOTAL & R &  & 0 & xóa khi START \\
+0x4C & PERF\_CYC\_DMA & R &  & 0 & chu kỳ ở W\_BIAS, W\_X, W\_W \\
+0x50 & PERF\_CYC\_GEMM & R &  & 0 & chu kỳ ở W\_PROJ, W\_SCORE, W\_PV \\
+0x54 & PERF\_CYC\_SMX & R &  & 0 &  \\
+0x58 & PERF\_BYTES & R &  & 0 & byte DMA đã nạp \\
+0x5C & OUT\_IDX & RW & {[}15:0{]} & 0 & chỉ số từ 32-bit trong Out \\
+0x60 & OUT\_DATA & R & {[}31:0{]} &  & 4 INT8 của Out tại OUT\_IDX; chỉ hợp lệ khi BUSY = 0 \\
+0x64 & HW\_INFO & R & {[}9:0{]} S\_MAX, {[}15:10{]} TILE, {[}31:16{]} version & hằng & để firmware tự kiểm \\
+0x68--0x7C &  &  &  &  & dự trữ \\
+\end{xltabular}
+
+Nguyên tắc (giữ từ doc cũ): START tự xóa, DONE/ERR sticky, xóa bằng W1C
+hoặc CLR (không read-clear), chặn ghi cấu hình khi BUSY, reset
+BUSY/DONE/ERR về 0.
+
+\textbf{Trình tự firmware:}
+
+\begin{lstlisting}
+ghi X_BASE..BIAS_BASE, SEQ_LEN, CFG, QNT_*;  ghi CTRL.START = 1
+poll STATUS đến khi DONE hoặc ERR
+nếu DONE: đọc PERF_*, đọc Out qua OUT_IDX/OUT_DATA;  ghi STATUS W1C
+\end{lstlisting}
+
+\section{Giao thức handshake chung}
+
+\begin{xltabular}{\linewidth}{@{}L{0.12}L{0.24}Y@{}}
+\toprule
+\textbf{Loại} & \textbf{Dùng ở} & \textbf{Luật} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\textbf{valid/ready} & DMA request, GEMM job, AXI, stream softmax & Payload hợp lệ \textbf{cùng lúc} với valid và giữ nguyên đến khi \texttt{valid\ \&\&\ ready}. Valid không được hạ trước handshake, không phụ thuộc tổ hợp vào ready. Valid reset về 0. \\
+\textbf{start/done} & softmax wrapper & \texttt{start} pulse 1 chu kỳ khi khối rảnh; \texttt{done} pulse 1 chu kỳ khi kết quả cuối \textbf{đã ghi vào buffer}. Tham số chốt lúc start. \\
+\textbf{level status} & \texttt{wr\_ready}, \texttt{full}, \texttt{busy} & Giữ mức, đọc bất kỳ lúc nào. \\
+\textbf{BRAM port} & mọi buffer & \texttt{rd\_en} + \texttt{rd\_addr} chu kỳ t → \texttt{rd\_data} chu kỳ t+1. Mux chọn đầu ra dùng tín hiệu chọn đã trễ 1 chu kỳ (giống \texttt{rd\_bank\_q} trong bram\_pp). \\
+\end{xltabular}
+
+Quy tắc "done chỉ khi đã ghi xong" rất quan trọng: nếu
+\texttt{gemm\_done} phát lúc PE xong mà pipeline postproc chưa ghi hết,
+job kế tiếp (ví dụ Score đọc Q\_buf ngay sau job Q) sẽ đọc dữ liệu cũ.
+
+\section{Clock, reset, CDC}
+
+\subsection{Clock}
+
+\begin{itemize}
+\tightlist
+\item
+  v0: \textbf{một clock} \texttt{i\_clk\_core} cho toàn bộ accelerator,
+  do CPU cấp {[}CHỐT, "CPU cấp clock cho accelerator"{]}. Mục tiêu 200
+  MHz {[}GIẢ ĐỊNH, MỞ-10{]}; Fmax của lõi GEMM 1024 MAC chưa biết.
+\item
+  DRAM: MIG DDR3 trên VC707 có \texttt{ui\_clk} riêng. Đây là chỗ
+  \textbf{bắt buộc} có CDC khi lên phần cứng thật:
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Cách 1 (đơn giản): dùng AXI Interconnect/AXI Clock Converter IP của
+    Vivado giữa u\_dma và MIG.
+  \item
+    Cách 2: async FIFO trên đường beat R (như
+    \texttt{dma\_v0\_4block.md} §7) và đường AR.
+  \end{itemize}
+\item
+  Băng thông lý thuyết DDR3 64 bit ở 1600 MT/s là 12.8 GB/s. Con số 19.2
+  GB/s trong doc cũ tương ứng 512 bit × 300 MHz, cao hơn mức DDR3 trên
+  VC707 cho phép, nên cần kiểm lại với cấu hình MIG thật (MỞ-10).
+\end{itemize}
+
+\subsection{Reset}
+
+\begin{itemize}
+\tightlist
+\item
+  Hiện trạng không thống nhất: bram\_pp dùng \textbf{reset đồng bộ},
+  VLSIT rule mặc định \textbf{reset bất đồng bộ tích cực thấp, nhả đồng
+  bộ} (\texttt{i\_rst\_n\_core} qua \texttt{m\_rst\_sync}). VexRiscv
+  reset tích cực cao.
+\item
+  Đề xuất: theo VLSIT rule cho toàn accelerator (một
+  \texttt{m\_rst\_sync} ở top, \texttt{i\_rst\_n\_core} tới mọi khối),
+  sửa bram\_pp cho khớp. Trên FPGA reset đồng bộ cũng ổn; quan trọng là
+  thống nhất. MỞ-08.
+\item
+  Chỉ reset trạng thái điều khiển và cờ valid. Không reset nội dung BRAM
+  và các thanh ghi payload (theo SEQ-04).
+\end{itemize}
+
+\subsection{Các điểm CDC (khi có nhiều clock)}
+
+\begin{xltabular}{\linewidth}{@{}L{0.21}L{0.23}Y@{}}
+\toprule
+\textbf{Điểm} & \textbf{Loại tín hiệu} & \textbf{Cấu trúc} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+CPU ↔ accelerator (nếu khác clock) & \texttt{start}, \texttt{task\_done}, \texttt{task\_err} & toggle synchronizer (\texttt{m\_pulse\_sync}) \\
+ & \texttt{cfg\_*} & không sync từng bit, vì ổn định trước START (quasi-static) \\
+ & \texttt{busy} & 2-FF (\texttt{m\_bit\_sync}) \\
+DMA ↔ MIG & AR, R & async FIFO hoặc AXI Clock Converter \\
+\end{xltabular}
+
+\section{Hiệu năng ước lượng}
+
+Giả định: 33 chu kỳ/tile pair, lõi GEMM luôn đủ dữ liệu, không tính
+overhead khởi động pipeline và chuyển trạng thái. \textbf{Chưa mô
+phỏng.}
+
+\subsection{Compute (chu kỳ)}
+
+\begin{xltabular}{\linewidth}{@{}L{0.39}L{0.15}L{0.13}L{0.13}Y@{}}
+\toprule
+\textbf{Phần} & \textbf{Công thức} & \textbf{S = 64} & \textbf{S = 128} & \textbf{S = 256} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+1 chunk projection & (S/32)·8·24·33 & 12 672 & 25 344 & 50 688 \\
+12 chunk (Q, K, V, Out) & ×12 & 152 064 & 304 128 & 608 256 \\
+Score + P·V, 1 head & 2·(S/32)²·2·33 & 528 & 2 112 & 8 448 \\
+Softmax 1 head, PAR = 1 & S² & 4 096 & 16 384 & 65 536 \\
+Softmax 1 head, PAR = 8 & S²/8 & 512 & 2 048 & 8 192 \\
+\textbf{Tổng, softmax PAR = 1} &  & 207 552 & 526 080 & 1 496 064 \\
+\textbf{Tổng, softmax PAR = 8} &  & 164 544 & 354 048 & 807 936 \\
+\end{xltabular}
+
+Ở S = 128, softmax PAR = 1 chiếm 42\% thời gian tổng. Nên hỏi lại thông
+lượng lõi softmax của bạn (MỞ-04).
+
+\subsection{DMA (chu kỳ, 1 beat/chu kỳ lý tưởng, chưa tính độ trễ DRAM)}
+
+\begin{xltabular}{\linewidth}{@{}L{0.26}L{0.22}L{0.23}Y@{}}
+\toprule
+\textbf{Nạp} & \textbf{Byte} & \textbf{Bus 32 bit} & \textbf{Bus 512 bit} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+1 chunk W & 196 608 & 49 152 & 3 072 \\
+12 chunk W & 2 359 296 & 589 824 & 36 864 \\
+X (S = 128) & 98 304 & 24 576 & 1 536 \\
+bias & 12 288 & 3 072 & 192 \\
+\end{xltabular}
+
+Với bus 32 bit debug và v0 tuần tự, S = 128: DMA ≈ 617 k chu kỳ, compute
+≈ 354 k chu kỳ, tổng ≈ 971 k chu kỳ ≈ 4.9 ms ở 200 MHz. Với bus 512 bit:
+DMA ≈ 39 k, tổng ≈ 393 k ≈ 2.0 ms. Nghĩa là overlap (§7.4) chỉ đáng làm
+khi còn ở bus hẹp; khi lên 512 bit thì ưu tiên tăng thông lượng softmax
+trước.
+
+\subsection{Tài nguyên (thô)}
+
+\begin{xltabular}{\linewidth}{@{}L{0.17}L{0.66}Y@{}}
+\toprule
+\textbf{Khối} & \textbf{Ước lượng} & \textbf{Ghi chú} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+BRAM36 & \textasciitilde232 (S = 128) & §5 \\
+DSP & lõi GEMM (1024 MAC INT8, tùy cách Minh map, có thể 512--1024 DSP) + postproc \textasciitilde64 & VC707 có 2800 \\
+FF lớn nhất ngoài lõi & bộ chuyển vị 8 192 FF, packer DMA 224 FF &  \\
+\end{xltabular}
+
+\section{Điểm mở và giả định (bạn chỉnh ở đây)}
+
+\begin{xltabular}{\linewidth}{@{}L{0.08}L{0.40}L{0.24}Y@{}}
+\toprule
+\textbf{Mã} & \textbf{Câu hỏi} & \textbf{Đề xuất của tôi} & \textbf{Ảnh hưởng nếu đổi} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+MỞ-01 & S tối đa? Cố định lúc synth hay runtime? & \texttt{PARA\_S\_MAX\ =\ 128}, S runtime bội 32 & Kích thước 5 buffer, độ rộng địa chỉ \\
+MỞ-02 & Ranh giới: có residual \texttt{+X} không? LayerNorm ngoài? Out INT8 hay INT32? & Residual tùy chọn, LN ngoài, Out INT8 & FG postproc, C\_buf/Out width \\
+MỞ-03 & INT8 toàn bộ? W có pack 4 bit (W4A8)? & INT8, chưa W4A8 & Chunk = nửa bank nếu 4 bit \\
+MỞ-04 & Lõi softmax: đầu vào INT? bit? đầu ra? mấy phần tử/chu kỳ? cần mấy lượt đọc? & Vào INT16, ra INT8 0..127, PAR = 8 & SC\_buf width, P scale, thời gian attention \\
+MỞ-05 & Lõi Minh đọc A theo hàng hay cột của tile? Beat đầu ở bit thấp? & Từ = 32 phần tử 1 hàng, cột nhỏ ở bit thấp & AGU, có cần chuyển vị A \\
+MỞ-06 & Minh có đồng ý đưa A\_bram/B\_bram ra ngoài, nhận m/n/k runtime, phát tile C theo hàng không bias? & Có & Nếu không: phải bọc lõi và copy dữ liệu vào A\_bram trước mỗi job \\
+MỞ-07 & Kết quả ra bằng gì? & v0 cửa sổ CSR, v1 thêm DMA write & Có thêm kênh AXI write \\
+MỞ-08 & Reset đồng bộ hay bất đồng bộ? & Theo VLSIT rule (async low, sync deassert) và sửa bram\_pp & Mọi khối \\
+MỞ-09 & Chính sách lỗi: dừng hẳn, không retry? Ghi cấu hình khi BUSY trả OKAY hay SLVERR? & Dừng hẳn; trả OKAY, bỏ qua & u\_ctrl, u\_csr \\
+MỞ-10 & Clock accelerator, cấu hình MIG thật (tốc độ, bus) & 200 MHz, 1 clock, CDC ở MIG & Timing, băng thông \\
+MỞ-11 & Thứ tự cột head trong chunk: chunk c chứa head 4c..4c+3 theo thứ tự cột tự nhiên? & Có & Layout §3.3, job Score/PV \\
+MỞ-12 & Có giữ Q sau tác vụ để debug không? & Không, Out ghi đè Q\_buf & +24 BRAM36 nếu thêm O\_buf \\
+\end{xltabular}
+
+Giả định ngầm khác tôi đã dùng: S là bội số 32; mọi base DRAM align 64 B
+(để burst 512 bit không bao giờ cắt 4 KB); chỉ một tác vụ chạy tại một
+thời điểm; tensor trong DRAM không đổi trong khi BUSY.
+
+\section{Kế hoạch kiểm thử và thứ tự làm}
+
+\subsection{Thứ tự làm (đề xuất)}
+
+\begin{xltabular}{\linewidth}{@{}L{0.08}L{0.43}L{0.37}Y@{}}
+\toprule
+\textbf{Bước} & \textbf{Việc} & \textbf{Test riêng} & \textbf{Phụ thuộc} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+1 & module BRAM chung (sram\_sdp) + bram\_pp (đã có) & ghi/đọc, trễ 1 chu kỳ, swap bank &  \\
+2 & DMA v0 (4 khối, \texttt{dma\_v0\_4block.md}) + demux & AXI4 burst memory model, ARREADY/RVALID ngẫu nhiên, bơm lỗi & 1 \\
+3 & CSR mở rộng & TB AXI4-Lite cũ + engine giả &  \\
+4 & u\_ctrl với DMA thật, GEMM/softmax giả (trả \texttt{done} sau N chu kỳ) & đúng thứ tự 12 chunk + 12 head, watchdog, lỗi giữa tác vụ & 2, 3 \\
+5 & FG opnd\_mux + FG postproc của u\_gemm với lõi GEMM giả (mô hình hành vi) & so địa chỉ đọc/ghi với bảng §6.5, chuyển vị K & MỞ-05, MỞ-06 \\
+6 & Ghép lõi GEMM thật của Minh & 1 job projection so NumPy & 5 \\
+7 & smx\_wrap + softmax của bạn & 1 head so NumPy & MỞ-04 \\
+8 & Toàn hệ thống + firmware & so golden model cả lớp & tất cả \\
+\end{xltabular}
+
+\subsection{Golden model}
+
+Viết bằng NumPy với \textbf{đúng kiểu số phần cứng}: nhân INT8 tích lũy
+INT32, requant đúng công thức §3.2 (cùng kiểu làm tròn, cùng bão hòa),
+softmax theo đúng thuật toán xấp xỉ của lõi bạn. So bit-exact từng
+buffer sau mỗi pha (Q\_buf, Kt\_buf, V\_buf, SC\_buf, P\_buf, C\_buf,
+Out), không chỉ so kết quả cuối, để khi sai biết ngay sai ở pha nào.
+
+\subsection{Case bắt buộc}
+
+\begin{itemize}
+\tightlist
+\item
+  S = 32 (nhỏ nhất), S = S\_MAX, S lẻ bội 32 (ví dụ 96).
+\item
+  DMA: chunk đúng biên 4 KB và lệch biên (với bus 32 bit), SLVERR giữa
+  chunk Wk, RLAST sai.
+\item
+  START lại sau DONE (không reset), START khi BUSY bị bỏ qua, ghi cấu
+  hình khi BUSY bị chặn.
+\item
+  Watchdog: GEMM giả không bao giờ trả \texttt{done}.
+\item
+  Residual bật/tắt; QNT với SH = 0 và SH lớn; giá trị bão hòa ±127.
+\end{itemize}
+
+\end{document}

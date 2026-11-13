@@ -1,0 +1,24 @@
+{
+  "signal": [
+    { "name": "clk",       "wave": "p..............." },
+    { "name": "rst_n",     "wave": "0.1............." },
+    {},
+    ["DMA",
+      { "name": "waddr",     "wave": "x.33335555x.333.", "data": ["0", "1", "…", "N-1", "0", "1", "…", "N-1", "0", "1", "…"] },
+      { "name": "wr_bank",   "wave": "x0....1...0....." }
+    ],
+    {},
+    ["GEMM",
+      { "name": "raddr",     "wave": "x......33333555.", "data": ["0", "1", "2", "…", "N-1", "0", "1", "…"] },
+      { "name": "rd_bank",   "wave": "x0..........1...", "node": "............c..." },
+      { "name": "rd_bank_q", "wave": "x.0..........1..", "node": ".............d.." },
+      { "name": "dout",      "wave": "x.......33333555", "data": ["q0[0]", "q0[1]", "q0[2]", "…", "q0[N-1]", "q1[0]", "q1[1]", "…"] }
+    ],
+    {},
+    { "name": "full[1:0]", "wave": "x2....2...2.2...", "data": ["00", "01", "11", "10"] }
+  ],
+  "edge": ["c~>d trễ 1 cycle"],
+  "head": { "text": "bram_pp ping-pong  (vàng = bank 0, xanh = bank 1, N = 6144)", "tick": 0 },
+  "foot": { "text": "c10–c11: full = 11 → DMA chờ  |  c12: rd_done xong, bank 0 trống lại" },
+  "config": { "hscale": 2 }
+}

@@ -1,0 +1,364 @@
+{
+ "library_sha256": "D1631ACF98A920526B235E8970FEDDC9305EA2F0D6A35C6529CD220D62AFABB6",
+ "layout": {
+  "gap_h": 90,
+  "gap_v": 80,
+  "margin": 40,
+  "block_h": 60
+ },
+ "top": {
+  "frame_label": [
+   "u_dma",
+   "(dma_rd)"
+  ],
+  "block_label": [
+   "u_dma",
+   "(dma_rd)"
+  ],
+  "block_row": [
+   "u_dma (dma_rd)",
+   "Read-only DMA (v0): copies one contiguous DRAM region (address, length) into one bank of the ping-pong weight buffer over an AXI4 read interface (32-bit data, INCR bursts of at most 16 beats, no 4 KB crossing). One request at a time; a request FSM sequences five child blocks: legalizer, address FSM, burst info FIFO, data FSM and BRAM writer. On a response error the data side drains all outstanding beats before the error is reported.",
+   "dma_v0_4block.md \u00a71"
+  ]
+ },
+ "frame_row": [
+  "u_dma (dma_rd) frame",
+  "Read-only DMA (v0): copies one contiguous DRAM region (address, length) into one bank of the ping-pong weight buffer over an AXI4 read interface (32-bit data, INCR bursts of at most 16 beats, no 4 KB crossing). One request at a time; a request FSM sequences five child blocks: legalizer, address FSM, burst info FIFO, data FSM and BRAM writer. On a response error the data side drains all outstanding beats before the error is reported.",
+  "dma_v0_4block.md \u00a71"
+ ],
+ "frame_interfaces": [
+  "REQ",
+  "AXAR",
+  "AXR",
+  "BWR",
+  "CLK"
+ ],
+ "blocks": [
+  {
+   "key": "FSM",
+   "label": [
+    "Request FSM",
+    "(FG of dma_rd)"
+   ],
+   "width": 160,
+   "row": 1,
+   "col": 0,
+   "row_name": "Request FSM (FG of dma_rd)",
+   "function": "Captures one request from the controller on a valid/ready handshake into internal registers, then checks it: the length must be non-zero and a multiple of 32 bytes and the destination range must fit in one 6144-word bank, otherwise the request ends in a configuration error. It waits until the ping-pong buffer reports a free bank, loads the legalizer and the writer in the same cycle, and lets the address and data sides run concurrently. On completion of the last word, or on a read error (after aborting the legalizer so that no new burst is issued), it waits until the address side is idle and no burst is in flight, then emits a one-cycle done or error indication with a held error code.",
+   "source": "dma_v0_4block.md \u00a72"
+  },
+  {
+   "key": "LEG",
+   "label": [
+    "u_legal",
+    "(burst_legalizer)"
+   ],
+   "width": 180,
+   "row": 0,
+   "col": 0,
+   "row_name": "u_legal (burst_legalizer)",
+   "function": "Splits (start address, total beats) into a sequence of bursts of min(16, beats left, beats to the next 4 KB boundary). It holds only the current address and the remaining beat count, offers one burst at a time, advances both only on an accepted handshake, flags the final burst, and clears the remaining count on an abort.",
+   "source": "dma_v0_4block.md \u00a73"
+  },
+  {
+   "key": "AR",
+   "label": [
+    "u_ar",
+    "(ar_fsm)"
+   ],
+   "width": 100,
+   "row": 0,
+   "col": 1,
+   "row_name": "u_ar (ar_fsm)",
+   "function": "Drives the AXI4 read address channel. When a burst is offered and the info FIFO is not full, it registers the burst and holds address and length (beats minus one) stable with valid asserted until the slave accepts; on acceptance it pushes the burst length and final flag into the info FIFO and consumes the burst. It reports idle-with-no-pending-burst as a level to the request FSM.",
+   "source": "dma_v0_4block.md \u00a74"
+  },
+  {
+   "key": "INFO",
+   "label": [
+    "u_info",
+    "(burst_info_fifo)"
+   ],
+   "width": 180,
+   "row": 0,
+   "col": 2,
+   "row_name": "u_info (burst_info_fifo)",
+   "function": "FIFO of depth MAX_OUT (1 in v0: one register with a valid flag) that stores the length and final flag of every burst accepted on the address channel and not yet completed on the data channel. Its occupancy is the number of bursts in flight, so the address side stalls when it is full and the data side waits while it is empty.",
+   "source": "dma_v0_4block.md \u00a75"
+  },
+  {
+   "key": "R",
+   "label": [
+    "u_r",
+    "(r_fsm)"
+   ],
+   "width": 100,
+   "row": 1,
+   "col": 1,
+   "row_name": "u_r (r_fsm)",
+   "function": "Receives the AXI4 read data channel. For the burst at the head of the info FIFO it accepts beats while the writer is ready, forwards each beat, counts beats against the expected length, checks the last flag and the response code, and pops the FIFO at the end of the burst. On an error response or a misplaced last flag it reports the error once, stops forwarding, and keeps accepting and discarding beats until every burst in flight is drained.",
+   "source": "dma_v0_4block.md \u00a76"
+  },
+  {
+   "key": "WR",
+   "label": [
+    "u_wr",
+    "(bram_writer)"
+   ],
+   "width": 160,
+   "row": 1,
+   "col": 2,
+   "row_name": "u_wr (bram_writer)",
+   "function": "Packs eight 32-bit beats into one 256-bit word (first beat in the low bits), writes the word to the ping-pong buffer at the current word address and increments the address; it counts beats independently of burst boundaries, compares the word count with the requested length and signals when the last word is written. It also forwards the buffer's free-bank status to the request FSM.",
+   "source": "dma_v0_4block.md \u00a77"
+  }
+ ],
+ "connectors": [
+  {
+   "id": "LOAD",
+   "src": "FSM",
+   "src_side": "T",
+   "dst": "LEG",
+   "dst_side": "B"
+  },
+  {
+   "id": "BST",
+   "src": "LEG",
+   "src_side": "R",
+   "dst": "AR",
+   "dst_side": "L"
+  },
+  {
+   "id": "PUSH",
+   "src": "AR",
+   "src_side": "R",
+   "dst": "INFO",
+   "dst_side": "L"
+  },
+  {
+   "id": "POP",
+   "src": "R",
+   "src_side": "R",
+   "dst": "INFO",
+   "dst_side": "B"
+  },
+  {
+   "id": "BEAT",
+   "src": "R",
+   "src_side": "R",
+   "dst": "WR",
+   "dst_side": "L"
+  },
+  {
+   "id": "RST",
+   "src": "R",
+   "src_side": "L",
+   "dst": "FSM",
+   "dst_side": "R"
+  },
+  {
+   "id": "ar_done",
+   "src": "AR",
+   "src_side": "B",
+   "dst": "FSM",
+   "dst_side": "R"
+  },
+  {
+   "id": "WLD",
+   "src": "FSM",
+   "src_side": "B",
+   "dst": "WR",
+   "dst_side": "B"
+  }
+ ],
+ "externals": [
+  {
+   "id": "REQ",
+   "block": "FSM",
+   "side": "L",
+   "dir": "in",
+   "pos": 0,
+   "text": [
+    "REQ",
+    "request from u_ctrl"
+   ]
+  },
+  {
+   "id": "AXAR",
+   "block": "AR",
+   "side": "T",
+   "dir": "out",
+   "pos": 0,
+   "text": [
+    "AXAR",
+    "ARADDR, ARLEN, ARSIZE,",
+    "ARBURST, ARID, ARVALID, ARREADY"
+   ]
+  },
+  {
+   "id": "AXR",
+   "block": "R",
+   "side": "B",
+   "dir": "in",
+   "pos": -30,
+   "text": [
+    "AXR",
+    "RDATA, RRESP, RLAST,",
+    "RID, RVALID, RREADY"
+   ]
+  },
+  {
+   "id": "BWR",
+   "block": "WR",
+   "side": "R",
+   "dir": "out",
+   "pos": 0,
+   "text": [
+    "BWR",
+    "to u_bram_pp"
+   ]
+  },
+  {
+   "id": "CLK",
+   "block": "LEG",
+   "side": "T",
+   "dir": "in",
+   "pos": 0,
+   "text": [
+    "CLK",
+    "clk, rst"
+   ]
+  }
+ ],
+ "nets": [
+  {
+   "entry": "CLK",
+   "sinks": [
+    {
+     "id": "C1",
+     "block": "INFO",
+     "side": "T",
+     "pos": 0
+    },
+    {
+     "id": "C2",
+     "block": "FSM",
+     "side": "L",
+     "pos": 15
+    },
+    {
+     "id": "C3",
+     "block": "WR",
+     "side": "B",
+     "pos": 30
+    },
+    {
+     "id": "C4",
+     "block": "R",
+     "side": "B",
+     "pos": 30
+    },
+    {
+     "id": "C5",
+     "block": "AR",
+     "side": "T",
+     "pos": 30
+    }
+   ]
+  }
+ ],
+ "interfaces": [
+  {
+   "id": "REQ",
+   "name": "DMA request",
+   "category": "handshake (valid/ready)",
+   "active": "u_ctrl -> Request FSM",
+   "signals": "u_ctrl -> Request FSM: req_valid, req_addr[31:0], req_len[31:0], req_dst_waddr[12:0]; Request FSM -> u_ctrl: req_ready, dma_done [pulse], dma_err [pulse], dma_err_code[2:0]"
+  },
+  {
+   "id": "LOAD",
+   "name": "Legalizer load",
+   "category": "handshake (load pulse)",
+   "active": "Request FSM -> u_legal",
+   "signals": "leg_load [pulse], leg_src[31:0], leg_total_beats[29:0], leg_abort [pulse]"
+  },
+  {
+   "id": "BST",
+   "name": "Burst descriptor",
+   "category": "handshake (valid/ready)",
+   "active": "u_legal -> u_ar",
+   "signals": "u_legal -> u_ar: bst_valid, bst_addr[31:0], bst_beats[4:0], bst_last; u_ar -> u_legal: bst_ready"
+  },
+  {
+   "id": "PUSH",
+   "name": "Info FIFO push",
+   "category": "handshake (FIFO push)",
+   "active": "u_ar -> u_info",
+   "signals": "u_ar -> u_info: push [pulse], push_beats[4:0], push_last; u_info -> u_ar: full [level]"
+  },
+  {
+   "id": "POP",
+   "name": "Info FIFO pop",
+   "category": "handshake (FIFO pop)",
+   "active": "u_r -> u_info",
+   "signals": "u_r -> u_info: pop [pulse]; u_info -> u_r: empty [level], head_beats[4:0], head_last"
+  },
+  {
+   "id": "BEAT",
+   "name": "Beat stream",
+   "category": "handshake (valid/ready)",
+   "active": "u_r -> u_wr",
+   "signals": "u_r -> u_wr: beat_valid, beat_data[31:0], beat_last; u_wr -> u_r: beat_ready"
+  },
+  {
+   "id": "RST",
+   "name": "Read status (custom)",
+   "category": "custom",
+   "active": "u_r -> Request FSM",
+   "signals": "r_idle [level], r_err [pulse], r_err_code[2:0]"
+  },
+  {
+   "id": "ar_done",
+   "name": "Address side done (custom)",
+   "category": "custom",
+   "active": "u_ar -> Request FSM",
+   "signals": "ar_done [level]"
+  },
+  {
+   "id": "WLD",
+   "name": "Writer load and done",
+   "category": "handshake (load/done)",
+   "active": "Request FSM -> u_wr",
+   "signals": "Request FSM -> u_wr: wr_load [pulse], wr_dst[12:0], wr_len_words[12:0]; u_wr -> Request FSM: wr_bank_ready [level], wr_last_done [pulse]"
+  },
+  {
+   "id": "AXAR",
+   "name": "AXI4 read address channel",
+   "category": "standard (AXI4 AR)",
+   "active": "u_ar -> DRAM",
+   "signals": "u_ar -> DRAM: ARADDR[31:0], ARLEN[7:0], ARSIZE[2:0], ARBURST[1:0], ARID, ARVALID; DRAM -> u_ar: ARREADY"
+  },
+  {
+   "id": "AXR",
+   "name": "AXI4 read data channel",
+   "category": "standard (AXI4 R)",
+   "active": "DRAM -> u_r",
+   "signals": "DRAM -> u_r: RDATA[31:0], RRESP[1:0], RLAST, RID, RVALID; u_r -> DRAM: RREADY"
+  },
+  {
+   "id": "BWR",
+   "name": "BRAM write port (custom)",
+   "category": "custom",
+   "active": "u_wr -> u_bram_pp",
+   "signals": "u_wr -> u_bram_pp: we [pulse], waddr[12:0], din[255:0]; u_bram_pp -> u_wr: wr_ready [level], wr_done [pulse]"
+  },
+  {
+   "id": "CLK",
+   "name": "Clock and reset",
+   "category": "custom",
+   "active": "external -> all blocks",
+   "signals": "clk, rst"
+  }
+ ],
+ "legend_note": "Architecture mode: drawn from dma/dma_v0_4block.md (2026-11-03) and Long's u_dma block diagram, not from RTL (RTL not yet written). Block names, bus names and topology follow Long's diagram; signal lists and widths are Claude's proposal. FG = functional group of the module own logic. [pulse] = one-cycle signal, [level] = held value."
+}
