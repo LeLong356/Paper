@@ -1,0 +1,37 @@
+{ "signal": [
+  {"name":"clk","wave":"p............."},
+  {"name":"rst","wave":"10............"},
+  ["POP",
+    {"name":"empty","wave":"x1.0........1."},
+    {"name":"head_beats","wave":"xxx=........xx","data":["2"]},
+    {"name":"head_last","wave":"xxx1........xx"},
+    {"name":"pop","wave":"x0.........10."}
+  ],
+  ["u_r",
+    {"name":"state","wave":"x=..=.......=.","data":["IDLE","RECV","IDLE"]},
+    {"name":"exp_beats","wave":"xxxx=.......xx","data":["2"]},
+    {"name":"cnt","wave":"x=......=...=.","data":["0","1","0"]}
+  ],
+  ["AXR",
+    {"name":"RVALID","wave":"x0.....10..10."},
+    {"name":"RREADY","wave":"x0..1.......0."},
+    {"name":"RDATA","wave":"xxxxxxx=xxx=xx","data":["5","6"]},
+    {"name":"RLAST","wave":"xxxxxxx0xxx1xx"},
+    {"name":"RRESP","wave":"xxxxxxx=xxx=xx","data":["0","0"]}
+  ],
+  ["BEAT",
+    {"name":"beat_valid","wave":"x0.....10..10."},
+    {"name":"beat_ready","wave":"x1............"},
+    {"name":"beat_data","wave":"xxxxxxx=xxx=xx","data":["5","6"]},
+    {"name":"beat_last","wave":"xxxxxxx0xxx1xx"}
+  ],
+  ["RST",
+    {"name":"r_idle","wave":"x1.0........1."},
+    {"name":"r_err","wave":"x0............"},
+    {"name":"r_err_code","wave":"x=............","data":["0"]}
+  ]
+ ],
+ "head": {"tick": 0},
+ "foot": {"tock": 0},
+ "config": {"hscale": 1}
+}

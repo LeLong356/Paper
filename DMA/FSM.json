@@ -1,0 +1,40 @@
+{ "signal": [
+  {"name":"clk","wave":"p.............."},
+  {"name":"rst","wave":"10............."},
+  ["REQ",
+    {"name":"req_valid","wave":"x010..........."},
+    {"name":"req_ready","wave":"x1.0.........1."},
+    {"name":"req_addr","wave":"xx=x...........","data":["0x1000"]},
+    {"name":"req_len","wave":"xx=x...........","data":["64"]},
+    {"name":"req_dst_waddr","wave":"xx=x...........","data":["0x10"]}
+  ],
+  {"name":"state","wave":"x=.==.=...===..","data":["IDLE","CHECK","WAIT_RDY","RUN","FLUSH","DONE","IDLE"]},
+  ["LOAD ",
+    {"name":"leg_load","wave":"x0....10......."},
+    {"name":"leg_src","wave":"x.....=x.......","data":["0x1000"]},
+    {"name":"leg_total_beats","wave":"x.....=x.......","data":["16"]},
+    {"name":"leg_abort","wave":"x0............."}
+  ],
+  ["WLD",
+    {"name":"wr_bank_ready","wave":"x0...1........."},
+    {"name":"wr_load","wave":"x0....10......."},
+    {"name":"wr_dst","wave":"x.....=x.......","data":["0x10"]},
+    {"name":"wr_len_words","wave":"x.....=x.......","data":["2"]},
+    {"name":"wr_last_done","wave":"x0.......10...."}
+  ],
+  ["Status vào",
+    {"name":"ar_done","wave":"x1.....0.1....."},
+    {"name":"r_idle","wave":"x1.....0.1....."},
+    {"name":"r_err","wave":"x0............."},
+    {"name":"r_err_code","wave":"x.............."}
+  ],
+  ["Kết quả ra REQ",
+    {"name":"dma_done","wave":"x0.........10.."},
+    {"name":"dma_err","wave":"x0............."},
+    {"name":"dma_err_code","wave":"x.............."}
+  ]
+ ],
+ "head": {"tick": 0},
+ "foot": {"tock": 0},
+ "config": {"hscale": 2}
+}

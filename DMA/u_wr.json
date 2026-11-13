@@ -1,0 +1,34 @@
+{ "signal": [
+  {"name":"clk","wave":"p............"},
+  {"name":"rst","wave":"10..........."},
+  ["WLD",
+    {"name":"wr_load","wave":"x010........."},
+    {"name":"wr_dst","wave":"x.=x........." , "data" : ["0x11"]},
+    {"name":"wr_len_words","wave":"x.=x.........", "data" :["1"]},
+    {"name":"wr_bank_ready","wave":"x1..........."},
+    {"name":"wr_last_done","wave":"x0.........10"}
+  ],
+  ["BEAT",
+    {"name":"beat_valid","wave":"x0.1..01....."},
+    {"name":"beat_ready","wave":"x1..........."},
+    {"name":"beat_data","wave":"x..===x=====x", "data" : ["A1","A2","A3","A4","A5","A6","A7","A8"]},
+    {"name":"beat_last","wave":"x0.........10"}
+  ],
+  ["u_wr",
+    {"name":"state","wave":"x=.=........=","data" : ["IDLE","PACK"]},
+    {"name":"idx","wave":"x=..===.=====","data" : ["0","1","2","3","4","5","6","7"]},
+    {"name":"cur_waddr","wave":"x=.=........=", "data" : ["0", "0x11","0x12"]},
+    {"name":"words_written","wave":"x=..........=" ,"data" : ["0"]}
+  ],
+  ["BWR",
+    {"name":"we","wave":"x0.........10"},
+    {"name":"waddr","wave":"x..........=x","data" :["0x11"]},
+    {"name":"din","wave":"x..........=x", "data" : ["W1"]},
+    {"name":"wr_ready","wave":"x1..........."},
+    {"name":"wr_done","wave":"x0..........."}
+  ]
+ ],
+ "head": {"tick": 0},
+ "foot": {"tock": 0},
+ "config": {"hscale": 1}
+}

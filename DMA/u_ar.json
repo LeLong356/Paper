@@ -1,0 +1,46 @@
+{ "signal": [
+  {"name":"clk","wave":"p........."},
+  {"name":"rst","wave":"10........"},
+  ["LOAD",
+    {"name":"leg_load","wave":"010......."},
+    {"name":"leg_addr","wave":"x=x.......","data":["0xFF8"]},
+    {"name":"leg_total_beats","wave":"x=x.......","data":["4"]}
+  ],
+  ["u_legal reg",
+    {"name":"addr","wave":"x==..=...=","data":["0","0xFF8","0x1000","0x1008"]},
+    {"name":"beats_left","wave":"x==..=...=","data":["0","4","2","0"]}
+  ],
+  ["BST",
+    {"name":"bst_valid","wave":"x01......0"},
+    {"name":"bst_ready","wave":"x0..10..10"},
+    {"name":"bst_beats","wave":"x.=..=...=","data":["2","2","0"]},
+    {"name":"bst_last","wave":"x.0..1...x"}
+  ],
+  ["u_ar",
+    {"name":"stage","wave":"x=.=.=..==","data":["IDLE","REQ","IDLE","REQ","IDLE"]},
+    {"name":"ARVALID","wave":"x0.1.0..10"},
+    {"name":"ARREADY","wave":"x0..10..10"},
+    {"name":"ARADDR","wave":"x..=....=.","data":["0xFF8","0x1000"]},
+    {"name":"ARLEN","wave":"x..=....=.","data":["1","1"]}
+  ],
+  ["PUSH",
+    {"name":"push","wave":"x0..10..10"},
+    {"name":"push_beats","wave":"x..=....=.","data":["2","2"]},
+    {"name":"push_last","wave":"x..0....1."},
+    {"name":"full","wave":"x0...1.0.1"}
+  ],
+  ["u_info",
+    {"name":"count","wave":"x=...=..==","data":["0","1","0","1"]},
+    {"name":"empty","wave":"x1...0..10"}
+  ],
+  ["POP",
+    {"name":"pop","wave":"0......10."},
+    {"name":"head_beats","wave":"xxxxx=..x=","data":["2","2"]},
+    {"name":"head_last","wave":"xxxxx0...1"}
+  ],
+  {"name":"ar_done","wave":"x10......1"}
+ ],
+ "head": {"tick": 0},
+ "foot": {"tock": 0},
+ "config": {"hscale": 2}
+}
