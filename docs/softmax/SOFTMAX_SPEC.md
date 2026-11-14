@@ -1,7 +1,7 @@
 # RTL architecture specification for the INT32-to-INT8 softmax core
 
-**Revision 1.5 · 14 November 2026**  
-**Top module:** `softmax`. **Target clock:** 5 ns (200 MHz). **Current top-level parameter:** `MAX_LENGTH=256`. The detailed regression results use the S = 32 reference build. Throughout this specification, S denotes configured capacity and N denotes the length of the current row.
+**Revision 1.6 · 15 November 2026**
+**Top module:** `softmax`. **Target clock:** 5 ns (200 MHz). **Current top-level parameter:** `MAX_LENGTH=256`. Section 9 reports verification results for all four capacities and detailed accuracy metrics for S = 32. Throughout this specification, S denotes configured capacity and N denotes the length of the current row.
 
 ## 1. Scope and configuration
 
@@ -171,7 +171,14 @@ All internal transfers use the rising edge of clk. Active-low reset aborts the r
 
 ## 9. Verification and acceptance criteria
 
-The top-level testbench defaults to S = 32 and passes its MAX_LENGTH parameter to the DUT. A separate capacity sweep checked seven rows per build, including lengths S−1 and S, against the reference. For S = 32, 64, 128 and 256 respectively, all 163, 323, 643 and 1,283 INT8 codes and intermediate FP32 quotients matched. Each row asserted out_last and done only on its final valid result.
+The regression driver sets `MAX_LENGTH` on the testbench for each build, and the testbench passes it to the DUT. Every intermediate FP32 quotient and INT8 output matched the Python reference. For every completed row, the testbench checked that `out_last` and `done` pulsed together for exactly one cycle, coinciding with the final `out_valid` result.
+
+| S (`MAX_LENGTH`) | Rows tested | INT8 outputs checked | `out_last` / `done` check |
+|---:|---:|---:|---|
+| 32 | 80 | 1,133 | Pass |
+| 64 | 84 | 1,388 | Pass |
+| 128 | 84 | 1,644 | Pass |
+| 256 | 84 | 2,156 | Pass |
 
 The Python reference computes exact integer differences, BF16 conversion, approximate VEXP and sequential FP32 sums. Its division oracle rounds the exact quotient to FP32. Quantization is checked against quantize_int8. A reciprocal followed by multiplication can produce a different rounded answer.
 
@@ -191,7 +198,7 @@ A passing row produces exactly N ordered results and one completion pulse.
 
 ### Running the RTL checks
 
-Run the following commands from the repository root with Python 3 and Icarus Verilog installed. The end-to-end driver generates vectors and sets the testbench capacity for each of the four builds. It retains the original 80-row S = 32 regression and adds near-capacity and full-length rows to the shared cases for larger builds. The seven-row sweep reported above is a separate recorded run.
+Run the following commands from the repository root with Python 3 and Icarus Verilog installed. The end-to-end driver generates vectors and sets the testbench capacity for each of the four builds. It retains the original 80-row S = 32 regression and adds near-capacity and full-length rows to the shared cases for larger builds.
 
 ```sh
 python3 sim/verify_softmax.py
