@@ -21,7 +21,7 @@ Input scale determines the arguments to the exponential. The output factor of 12
 
 ## 2. Single-row architecture
 
-![Parameterized top-level interface and internal datapath](report_softmax_datapath.svg)
+![Parameterized top-level interface and internal datapath](report_softmax_datapath.png)
 
 *Figure 1. The numerator comes from a synchronous read of exp_buffer. Every division in a row uses the same denominator held in sum_reg.*
 
@@ -61,7 +61,7 @@ The quantizer maps negative inputs and NaNs to 0, and positive infinity or a pro
 
 ## 4. Top-level ports and protocol
 
-![Parameterized softmax top-level ports](spec_figures/softmax_ports.svg)
+![Parameterized softmax top-level ports](spec_figures/softmax_ports.png)
 
 *Figure 2. S is the configured row capacity. The input `row_length[C-1:0]` carries the actual row length from 1 through S, so its width must include S itself.*
 
@@ -147,7 +147,7 @@ At S = 32, the arrays contain 1,024 and 512 bits respectively. At S = 256 they c
 
 ## 7. Top-level FSM and cycle timing
 
-![Seven-state softmax FSM with the scaled_last transition to COMPLETE](report_softmax_fsm.svg)
+![Seven-state softmax FSM with the scaled_last transition to COMPLETE](report_softmax_fsm.png)
 
 *Figure 3. The controller returns to READ_NUMERATOR for each remaining element. On the last element it waits for the quantizer to align its output and last tag.*
 
@@ -206,9 +206,3 @@ In the intermediate softmax_setup_pipeline.rpt, two of the ten worst paths reach
 ## Appendix A. RTL sources and clock constraint
 
 Set the synthesis top to softmax. Design sources are softmax.sv, softmax_exp_sum.sv, softmax_exp.sv, softmax_row_max.sv, int33_to_bf16.sv, vexp.sv, softmax_sum.sv, fp32_add_positive.sv, fp32_div_positive.sv and fp32_to_int8.sv. Place testbenches in simulation sources. The clock constraint is `create_clock -name clk -period 5.000 [get_ports clk]`.
-
-## Appendix B. Editable figures
-
-The [two-page report diagram](report_softmax.drawio) contains the datapath and seven-state top FSM used in Figures 1 and 3. PNG exports are available for the [datapath](report_softmax_datapath.png) and [FSM](report_softmax_fsm.png). Figure 2 shows the parameterized top-level interface, also available as a [PNG](spec_figures/softmax_ports.png). All figure labels and captions are in English.
-
-The [three-page architecture drawing](softmax_architecture.drawio) also contains block interfaces and the hierarchy. Its static exports are softmax_01_datapath, softmax_02_interfaces and softmax_03_control, each available as SVG and PNG. Use the cycle counts and transition conditions in Sections 6–7 for the final RTL revision.
