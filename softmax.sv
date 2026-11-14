@@ -1,5 +1,5 @@
 module softmax #(
-    parameter int MAX_LENGTH=32,
+    parameter int MAX_LENGTH=256,
     parameter int COUNT_WIDTH=$clog2(MAX_LENGTH+1)
 )(
     input logic clk, rst_n, start,
@@ -45,9 +45,15 @@ module softmax #(
         .out_valid(out_valid)
     );
     
+    // Advance the last tag on the same three edges as the INT8 data.
+    logic product_last, scaled_last;
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) out_last <= 1'b0;
-        else out_last <= probability_valid && probability_last;
+        if (!rst_n) {product_last, scaled_last, out_last} <= '0;
+        else begin
+            product_last <= probability_valid && probability_last;
+            scaled_last <= product_last;
+            out_last <= scaled_last;
+        end
     end
     assign done = out_valid && out_last;
 
@@ -117,7 +123,7 @@ module softmax #(
                     end
                 end
             end
-            QUANTIZE_WAIT: next_state = COMPLETE;
+            QUANTIZE_WAIT: if (scaled_last) next_state = COMPLETE;
             COMPLETE: begin
                 next_state = IDLE;
             end

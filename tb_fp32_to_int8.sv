@@ -10,7 +10,27 @@ module tb_fp32_to_int8;
     integer fd,status,expected,count=0;
     string path;
     fp32_to_int8 dut(.*);
-    always #5 clk=~clk;
+    always #2.5 clk=~clk;
+    reg [2:0] expected_valid;
+    reg [7:0] expected_data[0:2];
+    integer checked=0;
+    always @(posedge clk) begin
+        held_data=out_data;
+        if (!rst_n) expected_valid=0;
+        else begin
+            expected_valid={expected_valid[1:0],in_valid};
+            expected_data[2]=expected_data[1];
+            expected_data[1]=expected_data[0];
+            expected_data[0]=expected[7:0];
+            #1;
+            if(out_valid !== expected_valid[2]) $fatal(1,"Quantizer valid misaligned");
+            if(out_valid) begin
+                if(out_data !== expected_data[2])
+                    $fatal(1,"INT8 got %h expected %h",out_data,expected_data[2]);
+                checked++;
+            end else if(out_data !== held_data) $fatal(1,"Output changed during bubble");
+        end
+    end
     task reset_dut;
         @(negedge clk); rst_n=0; in_valid=0;
         #1;
@@ -20,6 +40,10 @@ module tb_fp32_to_int8;
     initial begin
         if(!$value$plusargs("VECTORS=%s",path)) $fatal(1,"Missing vectors");
         reset_dut();
+        // Reset with both internal valid bits set, before either input retires.
+        in_valid=1; in_data=32'h3f800000; expected=127;
+        repeat(2) @(posedge clk);
+        reset_dut();
         fd=$fopen(path,"r"); if(!fd) $fatal(1,"Cannot open vectors");
         while(!$feof(fd)) begin
             status=$fscanf(fd,"%h %d",value,expected);
@@ -27,24 +51,17 @@ module tb_fp32_to_int8;
                 @(negedge clk);
                 // Insert bubbles and verify output data holds its last value.
                 if(count%7==3) begin
-                    held_data=out_data; in_valid=0; in_data=32'h7fc00000;
-                    @(posedge clk); #1;
-                    if(out_valid !== 0 || out_data !== held_data) $fatal(1,"Invalid input accepted");
+                    in_valid=0;
                     @(negedge clk);
                 end
-                held_data=out_data;
                 in_valid=1; in_data=value;
-                #1; if(out_data !== held_data) $fatal(1,"Output changed before clock");
                 @(posedge clk); #1;
-                if(out_valid !== 1 || out_data !== expected[7:0])
-                    $fatal(1,"FP32 %h -> %0d expected %0d",value,out_data,expected);
-                if(out_data < 0) $fatal(1,"Output outside 0..127");
                 count=count+1;
-                if(count==25) reset_dut();
             end else if(!$feof(fd)) $fatal(1,"Malformed vector");
         end
         @(negedge clk); in_valid=0;
-        @(posedge clk); #1; if(out_valid !== 0) $fatal(1,"Stale valid");
+        repeat(4) @(negedge clk);
+        if(out_valid !== 0 || checked!=count) $fatal(1,"Stale valid or missing output");
         $fclose(fd);
         if(count==0) $fatal(1,"No vectors");
         $display("PASS: %0d FP32-to-INT8 conversions match Python; clock, valid, bubbles and reset checked",count);

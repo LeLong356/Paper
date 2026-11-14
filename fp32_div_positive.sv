@@ -8,7 +8,8 @@ module fp32_div_positive (
     typedef enum logic [2:0] {
         IDLE, 
         UNPACK, 
-        NORMALIZE, 
+        NORMALIZE,
+        PREPARE, 
         DIVIDE, 
         ROUND, 
         PACK, 
@@ -20,7 +21,10 @@ module fp32_div_positive (
     logic invalid_input, special_case;
     logic [31:0] special_result;
     logic [23:0] numerator_mantissa, denominator_mantissa;
-    integer numerator_exp, denominator_exp, initial_exp;
+    logic [4:0] numerator_shift, denominator_shift;
+    logic [23:0] numerator_norm, denominator_norm;
+    logic signed [10:0] numerator_exp, denominator_exp, base_exp;
+    logic numerator_smaller;
     logic [24:0] normalized_numerator;
     logic signed [10:0] quotient_exp;
     logic [23:0] divisor;
@@ -68,28 +72,37 @@ module fp32_div_positive (
         else special_case = 1'b0;
     end
 
-    always_comb begin
-        numerator_exp = (numerator_reg[30:23] == 0) ? 1 : int'(numerator_reg[30:23]);
-        denominator_exp = (denominator_reg[30:23] == 0) ? 1 : int'(denominator_reg[30:23]);
-        numerator_mantissa = {numerator_reg[30:23] != 0, numerator_reg[22:0]};
-        denominator_mantissa = {denominator_reg[30:23] != 0, denominator_reg[22:0]};
-        for (int i=0; i<23; i=i+1) begin
-            if (!numerator_mantissa[23]) begin
-                numerator_mantissa = numerator_mantissa << 1;
-                numerator_exp = numerator_exp - 1;
-            end
-            if (!denominator_mantissa[23]) begin
-                denominator_mantissa = denominator_mantissa << 1;
-                denominator_exp = denominator_exp - 1;
-            end
+    function automatic logic [4:0] normalization_shift(input logic [23:0] mantissa);
+        logic [4:0] shift;
+        shift = 0;
+        for (int i=0; i<24; i++)
+            if (mantissa[i]) shift = 5'(23-i);
+        return shift;
+    endfunction
+
+    assign numerator_mantissa = {numerator_reg[30:23] != 0, numerator_reg[22:0]};
+    assign denominator_mantissa = {denominator_reg[30:23] != 0, denominator_reg[22:0]};
+    assign numerator_exp = $signed({3'b0, numerator_reg[30:23]}) +
+                           (numerator_reg[30:23] == 0 ? 11'sd1 : 11'sd0);
+    assign denominator_exp = $signed({3'b0, denominator_reg[30:23]}) +
+                             (denominator_reg[30:23] == 0 ? 11'sd1 : 11'sd0);
+
+    // UNPACK finds each leading one. NORMALIZE registers the shifted operands
+    // and their exponent difference. PREPARE aligns the initial remainder.
+    always_ff @(posedge clk) begin
+        if (state == UNPACK) begin
+            numerator_shift <= normalization_shift(numerator_mantissa);
+            denominator_shift <= normalization_shift(denominator_mantissa);
         end
-        initial_exp = numerator_exp - denominator_exp + 127;
-        normalized_numerator = {1'b0, numerator_mantissa};
-        if (numerator_mantissa < denominator_mantissa) begin
-            normalized_numerator = normalized_numerator << 1;
-            initial_exp = initial_exp - 1;
+        if (state == NORMALIZE) begin
+            numerator_norm <= numerator_mantissa << numerator_shift;
+            denominator_norm <= denominator_mantissa << denominator_shift;
+            base_exp <= numerator_exp - denominator_exp + 11'sd127
+                        - $signed({6'b0, numerator_shift}) + $signed({6'b0, denominator_shift});
         end
     end
+    assign numerator_smaller = numerator_norm < denominator_norm;
+    assign normalized_numerator = numerator_smaller ? {numerator_norm, 1'b0} : {1'b0, numerator_norm};
     always_comb begin
         next_quotient_bit = (remainder >= {2'b00, divisor});
         remainder_after_subtract = remainder;
@@ -137,9 +150,9 @@ module fp32_div_positive (
                     denominator_reg <= denominator;
                 end
                 UNPACK: if (special_case) result_reg <= special_result;
-                NORMALIZE: begin
-                    quotient_exp <= initial_exp[10:0];
-                    divisor <= denominator_mantissa;
+                PREPARE: begin
+                    quotient_exp <= base_exp - (numerator_smaller ? 11'sd1 : 11'sd0);
+                    divisor <= denominator_norm;
                     remainder <= {1'b0, normalized_numerator};
                     quotient <= 0;
                     bit_count <= 0;
@@ -167,7 +180,8 @@ module fp32_div_positive (
                 if (special_case) next_state = COMPLETE;
                 else next_state = NORMALIZE;
             end
-            NORMALIZE: next_state = DIVIDE;
+            NORMALIZE: next_state = PREPARE;
+            PREPARE: next_state = DIVIDE;
             DIVIDE: if (bit_count == 25) next_state = ROUND;
             ROUND: next_state = PACK;
             PACK: next_state = COMPLETE;

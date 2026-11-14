@@ -1,7 +1,8 @@
 `timescale 1ns/1ps
 // Run using python3 verify_softmax.py. Outputs are sampled after clock updates.
-module tb_softmax;
-    localparam int MAX_LENGTH = 32;
+module tb_softmax #(
+    parameter int MAX_LENGTH = 32
+);
     logic clk=0, rst_n=0, start=0, in_valid=0;
     logic [$clog2(MAX_LENGTH+1)-1:0] row_length=0;
     logic signed [31:0] in_data=0;
@@ -11,18 +12,23 @@ module tb_softmax;
     reg [31:0] expected[0:MAX_LENGTH-1], expected_sum;
     reg [7:0] expected_int8[0:MAX_LENGTH-1];
     integer fp32_received;
-    reg previous_valid, previous_last;
+    reg [2:0] expected_valid, expected_last;
     integer fd, dump_fd, status, n, cycles, received;
     integer rows=0, elements=0;
     string vector_path, output_path;
-    softmax dut(.*);
+    softmax #(.MAX_LENGTH(MAX_LENGTH)) dut(.*);
     always #2.5 clk=~clk; // 5 ns period (200 MHz)
-    // Check exact one-cycle valid/last alignment through the quantizer.
+    // Independently track every result and last tag across all three stages.
     always @(posedge clk) begin
-        previous_valid = rst_n && dut.probability_valid;
-        previous_last = rst_n && dut.probability_valid && dut.probability_last;
+        if (!rst_n) begin
+            expected_valid = '0;
+            expected_last = '0;
+        end else begin
+            expected_valid = {expected_valid[1:0], dut.probability_valid};
+            expected_last = {expected_last[1:0], dut.probability_valid && dut.probability_last};
+        end
         #1;
-        if(out_valid !== previous_valid || out_last !== previous_last ||
+        if(out_valid !== expected_valid[2] || out_last !== expected_last[2] ||
            done !== (out_valid && out_last))
             $fatal(1,"Quantizer valid/last/done alignment failed");
     end
@@ -98,7 +104,8 @@ module tb_softmax;
         repeat(5) begin @(posedge clk); #1; end
         reset_dut(); check_idle();
 
-        // Reset with the last FP32 result pending at the quantizer input.
+        // Abort with the final tag pending at each point before quantizer retirement.
+        for (int delay_edges=0; delay_edges<3; delay_edges++) begin
         begin_row(1); in_valid=1; in_data=7;
         @(posedge clk); #1;
         @(negedge clk); in_valid=0;
@@ -107,7 +114,9 @@ module tb_softmax;
             @(posedge clk); #1; cycles=cycles+1;
         end
         if(cycles==60) $fatal(1,"Quantizer pending phase timeout");
+        repeat(delay_edges) begin @(posedge clk); #1; end
         reset_dut(); check_idle();
+        end
 
         while(!$feof(fd)) begin
             status=$fscanf(fd,"%d %h",n,expected_sum);
@@ -134,7 +143,7 @@ module tb_softmax;
                 // Assert start throughout busy time: buffer must NOT be overwritten.
                 start=1; row_length=1; in_valid=1; in_data=999;
                 received=0; fp32_received=0; cycles=0;
-                while(received<n && cycles<40*n+100) begin
+                while(received<n && cycles<46*n+100) begin
                     @(posedge clk); #1; cycles=cycles+1;
                     if(ready !== 0 || in_ready !== 0) $fatal(1,"New row accepted while busy");
                     if(dut.probability_valid === 1) begin

@@ -9,7 +9,7 @@ module tb_fp32_div_positive;
     integer fd,status,cycles,count=0;
     string path;
     fp32_div_positive dut(.*);
-    always #5 clk=~clk;
+    always #2.5 clk=~clk;
     task reset_dut;
         @(negedge clk); rst_n=0; in_valid=0;
         #1;
@@ -47,6 +47,9 @@ module tb_fp32_div_positive;
                 end
                 if(out_valid !== 1 || result !== expected)
                     $fatal(1,"%h / %h = %h, expected %h; cycles=%0d",a,b,result,expected,cycles);
+                if ((a[30:0]==0 || b[30:0]==0 || a[30:23]==255 || b[30:23]==255 ||
+                     a[31] || b[31]) ? (cycles!=1) : (cycles!=31))
+                    $fatal(1,"Unexpected division latency %0d",cycles);
                 if(count<4) $display("Example %h / %h = %h (%0d clocks after accept)",a,b,result,cycles);
                 @(negedge clk); in_valid=0;
                 @(posedge clk); #1;
