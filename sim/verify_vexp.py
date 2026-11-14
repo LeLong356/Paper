@@ -58,7 +58,7 @@ def analyze(dump_path):
 
 
 def main():
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[1]
     for tool in ("iverilog", "vvp"):
         if shutil.which(tool) is None:
             raise SystemExit(f"Required tool not found: {tool}")
@@ -68,7 +68,7 @@ def main():
         dump = temporary / "outputs.txt"
         subprocess.run(
             ["iverilog", "-g2012", "-s", "tb_vexp_vivado", "-o", str(executable),
-             str(root / "vexp.sv"), str(root / "tb.sv")],
+             str(root / 'rtl/vexp.sv'), str(root / 'tb/tb.sv')],
             check=True,
         )
         subprocess.run(["vvp", str(executable), f"+DUMP={dump}"], check=True)

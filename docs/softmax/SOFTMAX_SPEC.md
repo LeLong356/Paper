@@ -205,4 +205,4 @@ In the intermediate softmax_setup_pipeline.rpt, two of the ten worst paths reach
 
 ## Appendix A. RTL sources and clock constraint
 
-Set the synthesis top to softmax. Design sources are softmax.sv, softmax_exp_sum.sv, softmax_exp.sv, softmax_row_max.sv, int33_to_bf16.sv, vexp.sv, softmax_sum.sv, fp32_add_positive.sv, fp32_div_positive.sv and fp32_to_int8.sv. Place testbenches in simulation sources. The clock constraint is `create_clock -name clk -period 5.000 [get_ports clk]`.
+Set the synthesis top to softmax. Design sources in `rtl/` are softmax.sv, softmax_exp_sum.sv, softmax_exp.sv, softmax_row_max.sv, int33_to_bf16.sv, vexp.sv, softmax_sum.sv, fp32_add_positive.sv, fp32_div_positive.sv and fp32_to_int8.sv. Add testbenches from `tb/` to the simulation sources. The clock constraint is `create_clock -name clk -period 5.000 [get_ports clk]`.
