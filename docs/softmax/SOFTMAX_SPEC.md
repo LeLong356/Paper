@@ -191,7 +191,7 @@ A passing row produces exactly N ordered results and one completion pulse.
 
 ### Running the RTL checks
 
-Run the following commands from the repository root with Python 3 and Icarus Verilog installed. The end-to-end driver generates its own vectors for the default S = 32 testbench. The larger-capacity sweep reported above used separate capacity-matched runs.
+Run the following commands from the repository root with Python 3 and Icarus Verilog installed. The end-to-end driver generates vectors and sets the testbench capacity for each of the four builds. It retains the original 80-row S = 32 regression and adds near-capacity and full-length rows to the shared cases for larger builds. The seven-row sweep reported above is a separate recorded run.
 
 ```sh
 python3 sim/verify_softmax.py

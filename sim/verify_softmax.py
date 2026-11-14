@@ -1,6 +1,6 @@
 """End-to-end softmax.sv verification; scale=1, signed INT8 output 0..127.
 
-Run in Ubuntu: python3 verify_softmax.py
+Run from the repository root: python3 sim/verify_softmax.py
 Requires Python 3 and Icarus Verilog, no third-party Python packages.
 Reference: INT33 subtract -> BF16 -> current VEXP -> sequential FP32 sum
 -> direct division rounded to FP32 -> FP32 multiply by 127 -> nearest-even INT8.
@@ -31,7 +31,7 @@ def real(value):
     return struct.unpack('>f',struct.pack('>I',value))[0]
 
 
-def main():
+def verify_capacity(capacity):
     rows=[[2,1,0],[10,25,-3],[-5,-8,-2],[0],[-(1<<31)],
           [-(1<<31),(1<<31)-1],[(1<<31)-1,(1<<31)-2,(1<<31)-3],
           [1002,1001,1000],[7]*8,[0]*32,list(range(-16,16)),
@@ -44,6 +44,14 @@ def main():
         for _ in range(5):
             rows.append([rng.randint(-16,16) for _ in range(length)])
             rows.append([rng.randint(-(1<<31),(1<<31)-1) for _ in range(length)])
+    # Keep the original S=32 vectors and exercise the upper addresses of larger builds.
+    if capacity > 32:
+        rows.extend([
+            [rng.randint(-16, 16) for _ in range(capacity - 1)],
+            [0] * capacity,
+            [i % 8 - 4 for i in range(capacity)],
+            [-(1 << 31), (1 << 31) - 1] * (capacity // 2),
+        ])
     expected=[reference(row) for row in rows]
     root=Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix='softmax_full_') as directory:
@@ -58,7 +66,8 @@ def main():
         files=['rtl/softmax.sv','rtl/softmax_exp_sum.sv','rtl/softmax_exp.sv','rtl/softmax_row_max.sv',
                'rtl/int33_to_bf16.sv','rtl/vexp.sv','rtl/softmax_sum.sv','rtl/fp32_add_positive.sv',
                'rtl/fp32_div_positive.sv','rtl/fp32_to_int8.sv','tb/tb_softmax.sv']
-        compiled=subprocess.run(['iverilog','-g2012','-s','tb_softmax','-o',str(work/'sim'),
+        compiled=subprocess.run(['iverilog','-g2012','-s','tb_softmax',
+                                 f'-Ptb_softmax.MAX_LENGTH={capacity}','-o',str(work/'sim'),
                                  *(str(root/name) for name in files)],capture_output=True,text=True)
         if compiled.returncode:
             raise RuntimeError(compiled.stdout+compiled.stderr)
@@ -92,4 +101,6 @@ def main():
 
 
 if __name__=='__main__':
-    main()
+    for capacity in (32, 64, 128, 256):
+        print(f'Checking S = {capacity}', flush=True)
+        verify_capacity(capacity)

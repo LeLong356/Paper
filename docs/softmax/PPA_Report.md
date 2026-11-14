@@ -44,7 +44,7 @@ Vivado estimated 0.316–0.319 W across all four builds. The 3 mW spread and low
 
 ## Full-row latency in RTL simulation
 
-Latency was measured from the rising edge accepting start to the edge asserting done. The simulation set the DUT and testbench to the same capacity for each run. For each S, two full rows (N = S) were supplied without input bubbles: an all-zero row and a row repeating the integers −4 through 3. The latency runs used the same FP32 and INT8 reference checks as the [end-to-end regression](../../sim/verify_softmax.py). That driver runs functional checks at S = 32 with input bubbles. The latency table below uses continuous inputs and a capacity-matched testbench for each build.
+Latency was measured from the rising edge accepting start to the edge asserting done. The simulation set the DUT and testbench to the same capacity for each run. For each S, two full rows (N = S) were supplied without input bubbles: an all-zero row and a row repeating the integers −4 through 3. The latency runs used the same FP32 and INT8 reference checks as the [end-to-end regression](../../sim/verify_softmax.py). That driver runs functional checks at all four capacities with input bubbles. The latency table below uses continuous inputs and a capacity-matched testbench for each build.
 
 | S | Cycles per row | Row time at the 5 ns target (µs) | Mean cycles per element |
 |---|---|---|---|

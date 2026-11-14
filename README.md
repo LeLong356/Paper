@@ -29,7 +29,7 @@ python3 -m unittest discover -s sim
 python3 sim/verify_vexp.py
 ```
 
-The first command checks the S = 32 testbench against the reference, including internal FP32 quotients, INT8 outputs, reset and final-element signaling. For input `[2, 1, 0]`, the expected RTL codes are `[84, 31, 11]`. The standalone VEXP regression checks all 65,536 BF16 encodings and measures approximation error over three input ranges. The specification lists the block-level drivers.
+The first command runs all four capacities (32, 64, 128 and 256) in one invocation. It compiles the testbench and DUT for each capacity and tests rows of length S−1 and S. Each run compares the FP32 quotients and INT8 codes against the reference and checks reset. The testbench requires `out_last` and `done` to pulse together only on the final valid output of each row. A failed check stops the command with a nonzero exit status. For input `[2, 1, 0]`, the expected RTL codes are `[84, 31, 11]`. The standalone VEXP regression checks all 65,536 BF16 encodings and measures approximation error over three input ranges. The specification lists the block-level drivers.
 
 ## Mathematical reference
 
