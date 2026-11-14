@@ -189,6 +189,21 @@ For input [2, 1, 0], differences are [0, −1, −2], exponentials are [1, 0.369
 
 A passing row produces exactly N ordered results and one completion pulse.
 
+### Running the RTL checks
+
+Run the following commands from the repository root with Python 3 and Icarus Verilog installed. The end-to-end driver generates its own vectors for the default S = 32 testbench. The larger-capacity sweep reported above used separate capacity-matched runs.
+
+```sh
+python3 sim/verify_softmax.py
+python3 sim/verify_int33_to_bf16.py
+python3 sim/verify_vexp.py
+python3 sim/verify_softmax_exp.py
+python3 sim/verify_softmax_sum.py
+python3 sim/verify_softmax_exp_sum.py
+python3 sim/verify_fp32_div_positive.py
+python3 sim/verify_fp32_to_int8.py
+```
+
 ## 10. FPGA implementation and performance
 
 Vivado 2026.1 targeted xck26-sfvc784, speed grade −2LV, at 5 ns. At S = 32, the final build used 1,616 LUTs, 871 flip-flops, one BRAM and one DSP after synthesis. The final routed WNS was −0.061 ns at S = 32 and −0.100 ns at S = 256. All four reported configurations passed hold and pulse-width checks and missed setup at 200 MHz. Full measurements, power confidence and workload assumptions are in the [English PPA report](PPA_Report.md).
