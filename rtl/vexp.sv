@@ -5,13 +5,33 @@ module exps_stage (
     output logic        is_inf,
     output logic        is_zero
 );
-    logic       sign_bit;
+    logic [23:0] scaled_mant;
+    vexp_scale u_scale (.x_in(x_in), .scaled_mant(scaled_mant));
+    vexp_shift_bias u_shift_bias (
+        .x_in(x_in), .scaled_mant(scaled_mant), .exps_out(exps_out),
+        .is_nan(is_nan), .is_inf(is_inf), .is_zero(is_zero)
+    );
+endmodule
+
+module vexp_scale (
+    input logic [15:0] x_in,
+    output logic [23:0] scaled_mant
+);
+    localparam logic [15:0] LOG2E = 16'd23637;
+    wire [7:0] mant_full = (x_in[14:7] == 0) ? 8'd0 : {1'b1, x_in[6:0]};
+    assign scaled_mant = mant_full * LOG2E;
+endmodule
+
+module vexp_shift_bias (
+    input logic [15:0] x_in,
+    input logic [23:0] scaled_mant,
+    output logic [15:0] exps_out,
+    output logic is_nan, is_inf, is_zero
+);
+    logic sign_bit;
     logic [7:0] exp_in;
     logic [6:0] mant_in;
     logic in_is_nan, in_is_inf;
-    localparam logic [15:0] LOG2E = 16'd23637;
-    logic [7:0]  mant_full;
-    logic [23:0] scaled_mant; // Q2.21
     logic pre_overflow;
     logic [23:0] shifted_val;
     logic [7:0]  shift_right_amount;
@@ -24,8 +44,6 @@ module exps_stage (
     assign mant_in  = x_in[6:0];
     assign in_is_nan = (exp_in == 8'hFF) && (mant_in != 7'd0);
     assign in_is_inf = (exp_in == 8'hFF) && (mant_in == 7'd0);
-    assign mant_full = (exp_in == 8'd0) ? 8'd0 : {1'b1, mant_in};
-    assign scaled_mant = mant_full * LOG2E;
     assign pre_overflow = (exp_in > 8'd133);
     assign shift_right_amount = 8'd133 - exp_in;
     assign shifted_val = pre_overflow ? 24'd0 : (scaled_mant >> shift_right_amount);

@@ -1,5 +1,5 @@
 module softmax #(
-    parameter int MAX_LENGTH=256,
+    parameter int MAX_LENGTH=32,
     parameter int COUNT_WIDTH=$clog2(MAX_LENGTH+1)
 )(
     input logic clk, rst_n, start,
@@ -45,7 +45,6 @@ module softmax #(
         .out_valid(out_valid)
     );
     
-    // Advance the last tag on the same three edges as the INT8 data.
     logic product_last, scaled_last;
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) {product_last, scaled_last, out_last} <= '0;

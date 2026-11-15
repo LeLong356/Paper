@@ -3,6 +3,7 @@
 module tb_softmax_exp;
     localparam int MAX_LENGTH=32;
     localparam int COUNT_WIDTH=$clog2(MAX_LENGTH+1);
+    localparam int EXP_STAGES = 3;
     logic clk=0, rst_n=0, start=0, in_valid=0;
     logic [COUNT_WIDTH-1:0] row_length=0;
     logic signed [31:0] in_data=0;
@@ -63,7 +64,7 @@ module tb_softmax_exp;
         in_valid=0;
         @(posedge clk); #1;
         if(exp_valid || done) $fatal(1,"Early valid during RAM read");
-        repeat(3) begin @(posedge clk); #1; end
+        repeat(EXP_STAGES + 1) begin @(posedge clk); #1; end
         if(exp_valid !== 1) $fatal(1,"Expected output before abort");
         reset_dut();
 
@@ -93,19 +94,19 @@ module tb_softmax_exp;
                 @(posedge clk); #1; if(exp_valid || done) $fatal(1,"Early output during RAM read");
                 // These inputs must be ignored while emitting results.
                 in_valid=1; in_data=32'sh7fffffff;
-                // At cycle i the converter sees input i, the output carries i-2.
-                for(integer i=0;i<n+2;i=i+1) begin
+                // At cycle i the converter sees input i, the output carries i-EXP_STAGES.
+                for(integer i=0;i<n+EXP_STAGES;i=i+1) begin
                     @(posedge clk); #1;
-                    if(dut.diff_valid !== (i<n) || exp_valid !== (i>=2) ||
-                       done !== (i==n+1) || in_ready !== 0)
+                    if(dut.diff_valid !== (i<n) || exp_valid !== (i>=EXP_STAGES) ||
+                       done !== (i==n+EXP_STAGES-1) || in_ready !== 0)
                         $fatal(1,"Row %0d cycle %0d: valid/done timing",rows,i);
                     if(i<n && (dut.diff_data !== expected_diff[i] ||
                                dut.diff_bf16 !== expected_bf16[i]))
                         $fatal(1,"Row %0d index %0d: conversion mismatch",rows,i);
-                    if(i>=2) begin
-                        if(max_value !== expected_max || exp_data !== expected_exp[i-2])
+                    if(i>=EXP_STAGES) begin
+                        if(max_value !== expected_max || exp_data !== expected_exp[i-EXP_STAGES])
                             $fatal(1,"Row %0d index %0d: exp=%h expected=%h",
-                                   rows,i-2,exp_data,expected_exp[i-2]);
+                                   rows,i-EXP_STAGES,exp_data,expected_exp[i-EXP_STAGES]);
                         elements=elements+1;
                     end
                     @(negedge clk);

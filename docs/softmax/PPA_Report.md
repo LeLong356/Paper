@@ -1,59 +1,30 @@
 # FPGA softmax core: power, performance and area by row length
 
-The experiment varies the maximum row length (S) from 32 to 256 on the xck26-sfvc784 FPGA. Each build sets MAX_LENGTH to S and uses the same pipelined datapath, seven-state top-level controller and 5 ns clock constraint (200 MHz). The core accepts signed INT32 scores and emits one INT8 result per input. Increasing capacity eightfold added 33 LUTs and 17 flip-flops. Full-row processing time increased almost eightfold on the simulated inputs.
+The experiment varies the maximum row length (S) from 32 to 256 on the xck26-sfvc784 FPGA. Each build sets MAX_LENGTH to S and uses the same pipelined datapath, seven-state top-level controller and 5 ns clock constraint (200 MHz). The core accepts signed INT32 scores and emits one INT8 result per input. The integrated VEXP path registers the mantissa product before shifting and rounding. All four standalone builds meet the 200 MHz constraint after routing.
 
-## Resource utilization after synthesis
+## Post-synthesis resources and estimated on-chip power
 
-Each entry gives the resource count and its percentage of the device capacity, as reported in Vivado's Post-Synthesis view.
+| S | LUT | LUTRAM | FF | BRAM | DSP | I/O | BUFG | Power (W) |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 32 | 1,623 | 10 | 888 | 1 | 1 | 55 | 1 | 0.319 |
+| 64 | 1,626 | 10 | 896 | 1 | 1 | 56 | 1 | 0.319 |
+| 128 | 1,637 | 10 | 897 | 1 | 1 | 57 | 1 | 0.317 |
+| 256 | 1,652 | 10 | 905 | 1 | 1 | 58 | 1 | 0.317 |
 
-| Resource | Available | S = 32 | S = 64 | S = 128 | S = 256 |
-|---|---|---|---|---|---|
-| LUT | 117,120 | 1,616 (1.38%) | 1,620 (1.38%) | 1,633 (1.39%) | 1,649 (1.41%) |
-| LUTRAM | 57,600 | 10 (0.02%) | 10 (0.02%) | 10 (0.02%) | 10 (0.02%) |
-| FF | 234,240 | 871 (0.37%) | 879 (0.38%) | 880 (0.38%) | 888 (0.38%) |
-| BRAM | 144 | 1 (0.69%) | 1 (0.69%) | 1 (0.69%) | 1 (0.69%) |
-| DSP | 1,248 | 1 (0.08%) | 1 (0.08%) | 1 (0.08%) | 1 (0.08%) |
-| I/O | 189 | 55 (29.10%) | 56 (29.63%) | 57 (30.16%) | 58 (30.69%) |
-| BUFG | 352 | 1 (0.28%) | 1 (0.28%) | 1 (0.28%) | 1 (0.28%) |
+At the same capacity, the extra stage costs 17 flip-flops and 3–7 LUTs compared with the previous build. BRAM and DSP counts stay at one each. Vivado reported a junction temperature of 25.7 °C and Low confidence for all four power estimates. The 2 mW spread is too small to establish a trend.
 
-LUT usage increased by 2.04% and flip-flop usage by 1.95% relative to the S = 32 build. All four builds reuse one divider across the row. The row_length port grows from six bits to nine, accounting for the increase from 55 to 58 I/O pins when softmax is the top-level design.
+## Routed timing and full-row latency
 
-## Timing after routing
+| S | Previous WNS (ns) | WNS (ns) | WNS gain (ns) | TNS (ns) | WHS (ns) | WPWS (ns) | Failing / total setup endpoints | Cycles per full row | Estimated Fmax (MHz) |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 32 | −0.061 | +0.151 | +0.212 | 0.000 | +0.013 | +1.738 | 0 / 1,554 | 1,417 | 206.23 |
+| 64 | −0.264 | +0.072 | +0.336 | 0.000 | +0.029 | +1.738 | 0 / 1,573 | 2,825 | 202.92 |
+| 128 | −0.110 | +0.127 | +0.237 | 0.000 | +0.031 | +1.738 | 0 / 1,586 | 5,641 | 205.21 |
+| 256 | −0.100 | +0.023 | +0.123 | 0.000 | +0.033 | +1.738 | 0 / 1,606 | 11,273 | 200.92 |
 
-| S | Worst setup slack (ns) | Total negative setup slack (ns) | Failing / total setup endpoints | Worst hold slack (ns) | Worst pulse-width slack (ns) | Pulse-width endpoints | Estimated Fmax (MHz) |
-|---|---|---|---|---|---|---|---|
-| 32 | −0.061 | −0.360 | 14 / 1,575 | +0.010 | +1.738 | 932 | 197.6 |
-| 64 | −0.264 | −0.996 | 19 / 1,552 | +0.011 | +1.738 | 920 | 190.0 |
-| 128 | −0.110 | −1.393 | 22 / 1,585 | +0.009 | +1.738 | 930 | 195.7 |
-| 256 | −0.100 | −0.762 | 21 / 1,581 | +0.010 | +1.738 | 926 | 196.1 |
+All four routed builds passed setup, hold and pulse-width checks at 5 ns. Estimated Fmax is `1000 / (5 − WNS)` MHz for a single-cycle limiting path with fixed placement and routing. Only 200 MHz was verified by the reported runs.
 
-All four builds passed hold and pulse-width checks, with zero failing endpoints and zero total negative slack in both categories. All four missed setup at 200 MHz. S = 32 came closest, missing by 61 ps. S = 64 had the worst individual setup path, while S = 128 had the largest total setup violation.
-
-Estimated Fmax in MHz is 1,000 / (5 − WNS), using signed setup slack in ns and assuming a single-cycle limiting path with the same placement and routing. Timing closure at the estimated frequency requires verification with that clock constraint.
-
-## Estimated on-chip power
-
-| S | Total on-chip power (W) | Junction temperature (°C) | Thermal margin (°C) | Vivado confidence |
-|---|---|---|---|---|
-| 32 | 0.319 | 25.7 | 59.3 | Low |
-| 64 | 0.317 | 25.7 | 59.3 | Low |
-| 128 | 0.318 | 25.7 | 59.3 | Low |
-| 256 | 0.316 | 25.7 | 59.3 | Low |
-
-Vivado estimated 0.316–0.319 W across all four builds. The 3 mW spread and low confidence limit conclusions about how power varies with S. The screenshots report total on-chip power. A separate estimate would be needed to isolate the core's dynamic power.
-
-## Full-row latency in RTL simulation
-
-Latency was measured from the rising edge accepting start to the edge asserting done. The simulation set the DUT and testbench to the same capacity for each run. For each S, two full rows (N = S) were supplied without input bubbles: an all-zero row and a row repeating the integers −4 through 3. The latency runs used the same FP32 and INT8 reference checks as the [end-to-end regression](../../sim/verify_softmax.py). That driver runs functional checks at all four capacities with input bubbles. The latency table below uses continuous inputs and a capacity-matched testbench for each build.
-
-| S | Cycles per row | Row time at the 5 ns target (µs) | Mean cycles per element |
-|---|---|---|---|
-| 32 | 1,416 | 7.08 | 44.25 |
-| 64 | 2,824 | 14.12 | 44.13 |
-| 128 | 5,640 | 28.20 | 44.06 |
-| 256 | 11,272 | 56.36 | 44.03 |
-
-Both full-row patterns took 44 × N + 8 cycles, where N is the number of scores accepted for that transaction. Increasing the configured capacity alone does not add FSM iterations for a fixed N. The controller accumulates terms in order and sends each numerator to the iterative divider. A zero numerator can take the divider's shorter special-case path. The times in microseconds use the target clock period.
+Cycles were measured in RTL simulation from the edge accepting `start` to the edge asserting `done`. For a full row (N = S) with continuous input and nonzero division numerators, the measured latency is **44 × N + 9 cycles**. The new stage adds one cycle per row. Each input bubble during reception adds one cycle, and each zero numerator takes the divider's special-case path, saving 30 cycles. The [functional regression](../../sim/verify_softmax.py) checks FP32 results, INT8 codes and final-element signaling across all four capacities.
 
 ## Effect of pipelining at S = 32
 
@@ -62,8 +33,9 @@ Both full-row patterns took 44 × N + 8 cycles, where N is the number of scores 
 | Reduced buffer depth, before pipelining VEXP and the FP32 adder | −5.713 | −371.409 | 110 |
 | Pipelined VEXP and FP32 adder | −1.639 | −69.787 | 80 |
 | Added a three-stage INT8 quantizer and split operand preparation in the iterative divider | −0.061 | −0.360 | 14 |
+| Registered the VEXP mantissa product | +0.151 | 0.000 | 0 |
 
-At the same row length and clock constraint, the two revisions improved worst setup slack by 5.652 ns and reduced failing setup endpoints from 110 to 14. A comparison of area cost and cycles per row across revisions requires equivalent measurements on the earlier designs.
+At S = 32, the final revision improved WNS by 5.864 ns over the baseline and closed all 110 failing setup endpoints. A comparison of area cost and cycles per row across revisions requires equivalent measurements on the earlier designs.
 
 ## Implications for longer rows
 
@@ -71,7 +43,7 @@ The core accommodates longer rows with modest logic growth, while sequential acc
 
 ## Vivado figures
 
-The following figures are the four user-supplied Vivado screenshots used for the resource, timing and power tables. The latency figures come from RTL simulation. The S = 32 revision comparison uses timing summaries from the earlier implementation runs.
+Each figure pairs the post-synthesis utilization and power views with the routed timing summary for the same build. The S = 32 image shows rounded utilization percentages. Its exact counts come from the matching post-synthesis utilization report. The latency figures come from RTL simulation. The S = 32 revision comparison uses timing summaries from the earlier implementation runs.
 
 **S = 32.**
 

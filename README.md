@@ -7,7 +7,7 @@ The [softmax top module](rtl/softmax.sv) accepts a row of signed INT32 scores an
 
 ## Processing one row
 
-Set `MAX_LENGTH` at synthesis time (default 256). With reset released, present `start` and a `row_length` from 1 through `MAX_LENGTH` when `ready` is high. Each subsequent rising edge with both `in_valid` and `in_ready` transfers one score. Capture each code on `out_valid`. The core asserts `out_last` and `done` with the final valid code. The consumer must accept every valid output.
+Set `MAX_LENGTH` at synthesis time (default 32). With reset released, present `start` and a `row_length` from 1 through `MAX_LENGTH` when `ready` is high. Each subsequent rising edge with both `in_valid` and `in_ready` transfers one score. Capture each code on `out_valid`. The core asserts `out_last` and `done` with the final valid code. The consumer must accept every valid output.
 
 ## Repository layout
 

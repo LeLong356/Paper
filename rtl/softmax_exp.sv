@@ -17,6 +17,9 @@ module softmax_exp #(
     logic [15:0] diff_bf16;
 
     logic bf_valid, bf_last, row_last;
+    logic scaled_valid, scaled_last;
+    logic [15:0] scaled_input_q;
+    logic [23:0] scaled_mant, scaled_mant_q;
     logic signed [31:0] row_max, stream_max;
     logic [15:0] bf_q, exps, exps_q;
     logic nan_flag, inf_flag, zero_flag;
@@ -28,7 +31,7 @@ module softmax_exp #(
         u_row (
         .clk(clk), 
         .rst_n(rst_n), 
-        .start(start && !diff_valid && !bf_valid && !exp_valid), 
+        .start(start && !diff_valid && !bf_valid && !scaled_valid && !exp_valid),
         .row_length(row_length),
         .in_valid(in_valid), 
         .in_ready(in_ready), 
@@ -42,8 +45,9 @@ module softmax_exp #(
         .in_data(diff_data), 
         .out_bf16(diff_bf16)
     );
-    exps_stage u_exps (
-        .x_in(bf_q), .exps_out(exps), .is_nan(nan_flag),
+    vexp_scale u_scale (.x_in(bf_q), .scaled_mant(scaled_mant));
+    vexp_shift_bias u_exps (
+        .x_in(scaled_input_q), .scaled_mant(scaled_mant_q), .exps_out(exps), .is_nan(nan_flag),
         .is_inf(inf_flag), .is_zero(zero_flag)
     );
     vexp_finish u_finish (
@@ -54,22 +58,26 @@ module softmax_exp #(
     always_ff @(posedge clk) begin
         bf_q <= diff_bf16;
         if (diff_valid) stream_max <= row_max;
+        scaled_mant_q <= scaled_mant;
+        scaled_input_q <= bf_q;
         exps_q <= exps;
         nan_q <= nan_flag;
         inf_q <= inf_flag;
         zero_q <= zero_flag;
-        exp_is_zero_q <= (bf_q[14:7] == 0);
+        exp_is_zero_q <= (scaled_input_q[14:7] == 0);
     end
     assign max_value = exp_valid ? stream_max : row_max;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            {bf_valid, bf_last, exp_valid, done} <= '0;
+            {bf_valid, bf_last, scaled_valid, scaled_last, exp_valid, done} <= '0;
         end else begin
             bf_valid <= diff_valid;
             bf_last <= row_last;
-            exp_valid <= bf_valid;
-            done <= bf_last;
+            scaled_valid <= bf_valid;
+            scaled_last <= bf_last;
+            exp_valid <= scaled_valid;
+            done <= scaled_last;
         end
     end
 endmodule

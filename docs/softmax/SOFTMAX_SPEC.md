@@ -1,7 +1,7 @@
 # RTL architecture specification for the INT32-to-INT8 softmax core
 
-**Revision 1.6 · 15 November 2026**
-**Top module:** `softmax`. **Target clock:** 5 ns (200 MHz). **Current top-level parameter:** `MAX_LENGTH=256`. Section 9 reports verification results for all four capacities and detailed accuracy metrics for S = 32. Throughout this specification, S denotes configured capacity and N denotes the length of the current row.
+**Revision 1.7 · 15 November 2026**
+**Top module:** `softmax`. **Target clock:** 5 ns (200 MHz). **Current top-level parameter:** `MAX_LENGTH=32`. Section 9 reports verification results for all four capacities and detailed accuracy metrics for S = 32. Throughout this specification, S denotes configured capacity and N denotes the length of the current row.
 
 ## 1. Scope and configuration
 
@@ -102,7 +102,8 @@ softmax
 │   ├── u_exp : softmax_exp
 │   │   ├── u_row : softmax_row_max
 │   │   ├── u_convert : int33_to_bf16
-│   │   ├── u_exps : exps_stage
+│   │   ├── u_scale : vexp_scale
+│   │   ├── u_exps : vexp_shift_bias
 │   │   └── u_finish : vexp_finish
 │   │       └── u_px : px
 │   └── u_sum : softmax_sum
@@ -125,11 +126,11 @@ Widths in brackets below denote bit counts. Sequential blocks share clk and rst_
 | fp32_div_positive | in_valid, numerator[32], denominator[32] | in_ready, result[32], out_valid | Iterative direct division, one request in flight |
 | fp32_to_int8 | in_valid, in_data[32] | out_data[8], out_valid | Three-stage probability quantizer |
 
-In vexp.sv, exps_stage returns a 16-bit intermediate and three flags for NaN, infinity and zero. The px block uses seven intermediate fraction bits to produce a seven-bit correction. vexp_finish selects the final encoding, including special values. The coefficients are LOG2E = 23637, GAMMA_1 = 422 and GAMMA_2 = 278.
+Standalone vexp uses the combinational exps_stage wrapper around vexp_scale and vexp_shift_bias. The integrated softmax_exp instantiates these blocks separately to register the product between them. The shift/bias block returns a 16-bit intermediate and three flags for NaN, infinity and zero. The px block uses seven intermediate fraction bits to produce a seven-bit correction. vexp_finish selects the final encoding, including special values. The coefficients are LOG2E = 23637, GAMMA_1 = 422 and GAMMA_2 = 278.
 
 ## 6. Datapath and storage
 
-**Row capture and exponential.** The first accepted score initializes the maximum so that all-negative rows work correctly. READ_ROW primes the synchronous row-buffer read. The core subsequently produces N consecutive INT33 differences. If a difference becomes valid after edge k, bf_q holds its converted value after k+1 and exps_q holds the intermediate after k+2. vexp_finish produces the exponential from that intermediate. Valid and the final-element flag follow both stages.
+**Row capture and exponential.** The first accepted score initializes the maximum so that all-negative rows work correctly. READ_ROW primes the synchronous row-buffer read. The core subsequently produces N consecutive INT33 differences. If a difference becomes valid after edge k, `bf_q` holds its BF16 conversion after k+1. At k+2, `scaled_mant_q` captures the product of the mantissa and LOG2E, and `scaled_input_q` captures the matching BF16 input for sign, exponent and special-case handling. At k+3, `exps_q` and its flags capture the shifted, rounded and biased result. Combinational `vexp_finish` produces the exponential from those registers. The valid and last tags advance through all three stages, sustaining one exponential per cycle once the pipeline is full.
 
 **Accumulation.** In RECEIVE, each valid exponential writes exp_buffer[received_count]. The FSM ends reception by counting to the latched row length. A simulation assertion checks that exp_last agrees with the count. After the entire row has arrived, the summation FSM visits addresses in order. The adder stages capture operands, compare exponents, align mantissas, add, round and pack. A pair accepted at edge k produces out_valid after k+5. Independent pairs can enter on consecutive cycles. For a single row, the accumulator feedback and ADD_READ, ADD_REQUEST and ADD_WAIT states space requests eight cycles apart.
 
@@ -213,13 +214,14 @@ python3 sim/verify_fp32_to_int8.py
 
 ## 10. FPGA implementation and performance
 
-Vivado 2026.1 targeted xck26-sfvc784, speed grade −2LV, at 5 ns. At S = 32, the final build used 1,616 LUTs, 871 flip-flops, one BRAM and one DSP after synthesis. The final routed WNS was −0.061 ns at S = 32 and −0.100 ns at S = 256. All four reported configurations passed hold and pulse-width checks and missed setup at 200 MHz. Full measurements, power confidence and workload assumptions are in the [English PPA report](PPA_Report.md).
+Vivado 2026.1 targeted xck26-sfvc784, speed grade −2LV, at 5 ns. At S = 32, the final build used 1,623 LUTs, 888 flip-flops, one BRAM and one DSP after synthesis. All four standalone builds met setup, hold and pulse-width constraints at 200 MHz. Routed WNS ranged from +0.023 ns (S = 256) to +0.151 ns (S = 32). A continuously supplied row with nonzero numerators takes 44 × N + 9 cycles from start acceptance to done. Full measurements, power confidence and workload assumptions are in the [English PPA report](PPA_Report.md).
 
 | S = 32 revision | WNS (ns) | TNS (ns) | Failing setup endpoints |
 |---|---:|---:|---:|
 | Before pipelining VEXP and the FP32 adder | −5.713 | −371.409 | 110 |
 | After pipelining VEXP and the FP32 adder | −1.639 | −69.787 | 80 |
 | After staging quantization and divider preparation | −0.061 | −0.360 | 14 |
+| After registering scaled_mant in the VEXP path | +0.151 | 0.000 | 0 |
 
 In the baseline softmax_setup.rpt, eight of the ten worst paths ran from exp_buffer to the adder result. The worst traversed 33 logic levels in 9.631 ns. Two ran from diff_data through BF16 conversion and VEXP to the RAM write port, with a worst delay of 10.962 ns and slack of −5.709 ns. Baseline WHS was +0.022 ns.
 
