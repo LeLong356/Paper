@@ -1,0 +1,32 @@
+{ "signal": [
+  {"name": "clk", "wave": "p....................."},
+  {"name": "rst", "wave": "10...................."},
+  ["WLD",
+    {"name": "wr_load", "wave": "x010.................."},
+    {"name": "wr_abort", "wave": "x0...................."},
+    {"name": "wr_dst", "wave": "x.=x..................", "data": ["0x11"]},
+    {"name": "wr_bank_ready", "wave": "x1...................."},
+    {"name": "wr_last_done", "wave": "x0..................10"}
+  ],
+  ["BEAT",
+    {"name": "beat_valid", "wave": "x0.1..01............0."},
+    {"name": "beat_ready", "wave": "x1...................."},
+    {"name": "beat_data", "wave": "x..===x=============x.", "data": ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12", "A13", "A14", "A15", "A16"]},
+    {"name": "beat_last", "wave": "x0.................10."}
+  ],
+  ["u_wr",
+    {"name": "state", "wave": "x=.=................=.", "data": ["IDLE", "PACK", "IDLE"]},
+    {"name": "idx", "wave": "x=..===.=============.", "data": ["0", "1", "2", "3", "4", "5", "6", "7", "0", "1", "2", "3", "4", "5", "6", "7", "0"]},
+    {"name": "cur_waddr", "wave": "x=.=........=.......=.", "data": ["0", "0x11", "0x12", "0x13"]}
+  ],
+  ["BWR",
+    {"name": "we", "wave": "x0..........10......10"},
+    {"name": "waddr", "wave": "x...........=x......=x", "data": ["0x11", "0x12"]},
+    {"name": "din", "wave": "x...........=x......=x", "data": ["W1 = {A8..A1}", "W2 = {A16..A9}"]},
+    {"name": "wr_ready", "wave": "x1...................."}
+  ]
+ ],
+ "head": {"text": "u_wr: 2-word transfer at 0x11; after word W1 the writer stays in PACK; the beat with beat_last (A16) ends the transfer: W2 + wr_last_done (Q6 2026-11-16, no word count)", "tick": 0},
+ "foot": {"tock": 0},
+ "config": {"hscale": 1}
+}

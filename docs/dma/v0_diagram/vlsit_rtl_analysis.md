@@ -23,22 +23,22 @@ Evidence tags:
 |---|---|---|---|---|---|
 | 0 | u_dma | dma_rd | dma_v0_4block.md §1 | u_acc | [FIXED] |
 | 1 | (FG) Request FSM | own logic of dma_rd | §2 | u_dma | [FIXED] name, [PROPOSED] states |
-| 1 | u_legal | burst_legalizer | §3 | u_dma | [FIXED] |
-| 1 | u_ar | ar_fsm | §4 | u_dma | [FIXED] |
-| 1 | u_info | burst_info_fifo | §5 | u_dma | [FIXED] |
-| 1 | u_r | r_fsm | §6 | u_dma | [FIXED] |
-| 1 | u_wr | bram_writer | §7 | u_dma | [FIXED] |
+| 1 | u_legal | m_dma_legal | §3 | u_dma | [FIXED] |
+| 1 | u_ar | m_dma_ar | §4 | u_dma | [FIXED] |
+| 1 | u_info | m_dma_info | §5 | u_dma | [FIXED] |
+| 1 | u_r | m_dma_r | §6 | u_dma | [FIXED] |
+| 1 | u_wr | m_dma_wr | §7 | u_dma | [FIXED] |
 
 ## 3. Module functions
 
 | Module | Main function | Key state / datapath | Instance |
 |---|---|---|---|
 | dma_rd | Copies one contiguous DRAM region into one bram_pp bank over AXI4 read; one request at a time | Request FSM (own logic) plus five children | u_dma |
-| burst_legalizer | Splits (address, beats) into bursts of at most 16 beats with no 4 KB crossing | address and remaining-beat registers | u_legal |
-| ar_fsm | Issues bursts on the AXI4 AR channel and records them in the info FIFO | 2 states (AR_IDLE, AR_REQ), registered AR payload | u_ar |
-| burst_info_fifo | Holds {beats, last} of bursts in flight, depth MAX_OUT | FIFO (1 register + valid in v0) | u_info |
-| r_fsm | Receives the AXI4 R channel, checks RLAST/RRESP, forwards beats, drains on error | 3 states (R_IDLE, R_RECV, R_DRAIN), beat counter | u_r |
-| bram_writer | Packs eight 32-bit beats into one 256-bit word and writes bram_pp | 224-bit buffer, beat index, word address, word counter | u_wr |
+| m_dma_legal | Splits (address, beats) into bursts of at most 16 beats with no 4 KB crossing | address and remaining-beat registers | u_legal |
+| m_dma_ar | Issues bursts on the AXI4 AR channel and records them in the info FIFO | 2 states (AR_IDLE, AR_REQ), registered AR payload | u_ar |
+| m_dma_info | Holds {beats, last} of bursts in flight, depth MAX_OUT | FIFO (1 register + valid in v0) | u_info |
+| m_dma_r | Receives the AXI4 R channel, checks RRESP, ends a burst on RLAST, forwards beats, drains on error | 2 states (R_RECV, R_DRAIN), no beat counter | u_r |
+| m_dma_wr | Packs eight 32-bit beats into one 256-bit word and writes bram_pp | 224-bit buffer, beat index, word address, word counter | u_wr |
 
 ### 3a. Functional groups of dma_rd own logic
 
@@ -59,24 +59,24 @@ All signal types are [PROPOSED] from `dma_v0_4block.md`; level versus pulse is t
 | dma_done, dma_err | Request FSM | u_ctrl | 1, 1 | status, pulse | REQ |
 | dma_err_code | Request FSM | u_ctrl | 3 | status, level | REQ |
 | leg_load, leg_abort | Request FSM | u_legal | 1, 1 | ctrl, pulse | LOAD |
-| leg_src, leg_total_beats | Request FSM | u_legal | 32, 30 | addr / data | LOAD |
+| leg_addr, leg_total_beats | Request FSM | u_legal | 32, 30 | addr / data | LOAD |
 | bst_valid, bst_addr, bst_beats, bst_last | u_legal | u_ar | 1, 32, 5, 1 | valid/ready payload | BST |
 | bst_ready | u_ar | u_legal | 1 | ctrl | BST |
-| push, push_beats, push_last | u_ar | u_info | 1, 5, 1 | FIFO push, pulse | PUSH |
+| push, push_last | u_ar | u_info | 1, 1 | FIFO push, pulse | PUSH |
 | full | u_info | u_ar | 1 | status, level | PUSH |
 | ar_done | u_ar | Request FSM | 1 | status, level | ar_done |
 | pop | u_r | u_info | 1 | FIFO pop, pulse | POP |
-| empty, head_beats, head_last | u_info | u_r | 1, 5, 1 | status / data, level | POP |
+| empty, head_last | u_info | u_r | 1, 1 | status / data, level | POP |
 | r_idle | u_r | Request FSM | 1 | status, level | RST |
 | r_err, r_err_code | u_r | Request FSM | 1, 3 | status, pulse / level | RST |
 | beat_valid, beat_data, beat_last | u_r | u_wr | 1, 32, 1 | valid/ready payload | BEAT |
 | beat_ready | u_wr | u_r | 1 | ctrl | BEAT |
-| wr_load, wr_dst, wr_len_words | Request FSM | u_wr | 1, 13, 13 | ctrl pulse / addr / data | WLD |
+| wr_load, wr_abort, wr_dst | Request FSM | u_wr | 1, 1, 13 | ctrl pulse / addr / data | WLD |
 | wr_bank_ready, wr_last_done | u_wr | Request FSM | 1, 1 | status level / pulse | WLD |
 | ARADDR, ARLEN, ARSIZE, ARBURST, ARID, ARVALID / ARREADY | u_ar / DRAM | DRAM / u_ar | 32, 8, 3, 2, 1, 1 / 1 | AXI4 AR | AXAR |
 | RDATA, RRESP, RLAST, RID, RVALID / RREADY | DRAM / u_r | u_r / DRAM | 32, 2, 1, 1, 1 / 1 | AXI4 R | AXR |
-| we, waddr, din / wr_ready, wr_done | u_wr / u_bram_pp | u_bram_pp / u_wr | 1, 13, 256 / 1, 1 | BRAM write | BWR |
-| clk, rst | external | all blocks | 1, 1 | clock, reset | CLK |
+| we, waddr, din / wr_ready | u_wr / u_bram_pp | u_bram_pp / u_wr | 1, 13, 256 / 1 | BRAM write | BWR |
+| i_clk_core, i_rst_n_core | external | all blocks | 1, 1 | clock, sync active-low reset | CLK |
 
 ## 5. Interface classification
 
@@ -119,7 +119,7 @@ Ungrouped signals: none.
 ## 7. Conditional and unresolved items
 
 - O-1: mnemonic `RST` (read status) may be confused with reset; kept as in Long's diagram.
-- O-2: A8 to A10 of `dma_v0_4block.md` (ar_done as a combinational level, abort via LOAD, wr_ready forwarded by u_wr through WLD) are proposals needed to keep Long's topology; to be confirmed.
+- O-2: A8 to A10 of `dma_v0_4block.md` (ar_done as a combinational level, abort via LOAD, wr_ready forwarded by u_wr through WLD) are proposals needed to keep Long's topology; to be confirmed. Implemented as proposed in RTL v0 (2026-11-14); WLD also carries wr_abort (designer answer Q4).
 - O-3: main.tex adds a dst demux (BWR or XWR), 14-bit waddr and DATA_W = 512; these are not part of v0 and are not drawn.
 
 ## 8. Diagram mapping

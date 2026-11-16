@@ -3,6 +3,37 @@
 Cập nhật 2026-11-03 theo block diagram u_dma của bạn (sơ đồ: `dma/v0_diagram/vlsit_rtl_hierarchy.drawio`). Bản cũ 2026-10-28 (có CSR riêng) lưu ở `dma/old/dma_v0_4block_2026-10-28.md`.
 Chỉ mô tả chức năng, không có RTL (bạn tự viết). Con số LUT/FF ở cuối là **tôi ước lượng**, chưa synth.
 
+**Cập nhật 2026-11-16:** u_wr kết thúc theo `beat_last`; bỏ `wr_len_words` khỏi bus WLD và bộ đếm từ trong u_wr (Q6 mới, §1, §2, §7, `wave/m_dma_wr.json`). u_r kết thúc burst chỉ theo RLAST, bỏ bộ đếm beat, bỏ trường `beats` trong u_info và bỏ mã lỗi 4 (R2, §1, §2, §4–§6, `wave/m_dma_r.json`). DMA bỏ cổng `wr_done`, bram_pp tự phát hiện bank đầy (bảng quyết định dòng BWR, §7). Phân chia xử lý lỗi phần cứng / phần mềm và việc còn mở về timeout: §11.
+
+**Cập nhật 2026-11-14: RTL v0 đã viết** (`DMA/rtl/`, testbench `DMA/verification/`, waveform `DMA/wave/`)
+
+| Khối (instance) | Module / file | Wave |
+|---|---|---|
+| dma_rd (top, chỉ nối dây) | `m_dma_rd.sv` | |
+| Request FSM | `m_dma_fsm.sv` | `m_dma_fsm.json` |
+| u_legal | `m_dma_legal.sv` | |
+| u_ar | `m_dma_ar.sv` | `m_dma_ar.json` |
+| u_info | `m_dma_info.sv` | |
+| u_r | `m_dma_r.sv` | `m_dma_r.json` |
+| u_wr | `m_dma_wr.sv` | `m_dma_wr.json` |
+| hằng số chung | `dma_pkg.sv` (`BEAT_SHIFT = $clog2(BYTES_PER_BEAT)`) | |
+
+Tên port theo VLSIT: `i_<tên>` / `o_<tên>` (ví dụ `wr_load` → `i_wr_load`), cổng AXI là `i_axi_*` / `o_axi_*`, clock `i_clk_core`, reset `i_rst_n_core` **đồng bộ, mức thấp**. Tên tín hiệu trong tài liệu này là phần sau tiền tố.
+
+Các quyết định đã chốt (chỗ nào khác với phần dưới thì theo bảng này):
+
+| # | Quyết định |
+|---|---|
+| Q3 | u_wr: `we`, `waddr`, `din`, `wr_last_done` ra qua thanh ghi, **trễ 1 chu kỳ** sau beat thứ 8 |
+| Q4 | Bus WLD thêm `wr_abort` (pulse), phát cùng `leg_abort`; u_wr về IDLE, bỏ từ đang gom |
+| Q5 | `beat_ready = 1` luôn; beat tới lúc u_wr IDLE bị bỏ |
+| Q6 | (cập nhật 2026-11-16) u_wr kết thúc ở handshake BEAT có `beat_last = 1`; **không đếm số từ**, bus WLD bỏ `wr_len_words`. Chỉ một nguồn quyết định "hết lệnh" là chuỗi cờ last (`bst_last` → `push_last` → `head_last` → `beat_last`). Không có mã lỗi riêng cho trường hợp `beat_last` lệch (về logic không xảy ra), phần mềm lo bằng watchdog (§11) |
+| BWR | (2026-11-16) **bram_pp tự phát hiện bank đầy** (`we` ở word `DEPTH − 1` = 6143), tự đổi bank và tự phát `wr_done` (output của bram_pp, khớp `mhsa_accelerator_spec.md`). DMA không còn cổng `wr_done`; bus BWR chỉ còn `wr_ready` đi ngược về |
+| Q7 | `r_err` là pulse tổ hợp ngay tại beat lỗi; `leg_abort = wr_abort = r_err` trong RUN cùng chu kỳ, nên u_ar không phát burst mới |
+| Q8 | Beat lỗi (RRESP ≠ OKAY) không đẩy sang u_wr; burst kết thúc ở beat có RLAST (RECV và DRAIN); EXOKAY coi như SLVERR (mã 2); RID không kiểm; `r_err_code` giữ tới lỗi sau |
+| R2 | (2026-11-16) u_r **chỉ dùng RLAST** để kết thúc burst, không đếm beat, không kiểm RLAST, **bỏ mã lỗi 4**. Lý do: RLAST là nghĩa vụ của subordinate (IHI 0022H.c A3.2.2), AXI không định nghĩa lỗi cho RLAST sai (chỉ RRESP, A3.4.5); slave vi phạm thì phần mềm lo bằng watchdog (§11). u_info chỉ còn lưu cờ `last` |
+| Q9 | `leg_load`/`wr_load` là pulse qua thanh ghi, ra ở chu kỳ RUN đầu tiên; `req_ready = 1` đúng khi IDLE; tên `leg_addr` (thay `leg_addr`); CHECK dùng `PARA_BANK_DEPTH = 6144` |
+
 **Thay đổi so với bản 2026-10-28**
 - CSR không còn nằm trong DMA: CPU cấu hình qua `u_csr`, còn DMA nhận lệnh từ `u_ctrl` qua bus **REQ** (valid/ready).
 - CTRL nhỏ ở top DMA đổi tên thành **Request FSM** (FG of dma_rd, logic riêng của `dma_rd`, không phải module con).
@@ -17,7 +48,7 @@ Chỉ mô tả chức năng, không có RTL (bạn tự viết). Con số LUT/FF
 |---|---|---|
 | A1 | u_dma, u_ctrl, bram_pp cùng **1 clock** | Chỗ nào cần CDC sau này có đánh dấu **[CDC]** |
 | A2 | AXI4 read-only, `DATA_W = 32`, `ADDR_W = 32`, INCR, tối đa 16 beat/burst | `ARSIZE = 3'b010`. Bản 512 bit để sau (main.tex §u_dma) |
-| A3 | Đích v0 chỉ là cổng ghi bram_pp: `we`, `waddr[12:0]`, `din[255:0]`, vào `wr_ready`, `wr_done` | 1 từ = 256 bit = **8 beat** AXI 32-bit. `dst_sel`/demux/XWR của main.tex là bản sau |
+| A3 | Đích v0 chỉ là cổng ghi bram_pp: `we`, `waddr[12:0]`, `din[255:0]`, vào `wr_ready` | 1 từ = 256 bit = **8 beat** AXI 32-bit. `dst_sel`/demux/XWR của main.tex là bản sau |
 | A4 | `waddr` là địa chỉ **trong 1 bank** (0..6143), bram_pp tự chọn bank | |
 | A5 | `wr_ready = 1` nghĩa là có bank trống, DMA kiểm tra **lúc bắt đầu** transfer; trong lúc ghi không bị rớt xuống | Nếu có thể rớt giữa chừng thì writer phải có backpressure, xem §7 |
 | A6 | Beat đầu tiên nằm ở bit thấp: beat i → `din[32*i +: 32]` | Phải khớp cách GEMM đọc từ; kiểm lại với Minh |
@@ -49,24 +80,24 @@ Mũi tên chỉ từ bên chủ động (initiator) sang bên bị động; tín
 | Bus | Từ → đến | Tín hiệu | Kiểu |
 |---|---|---|---|
 | REQ | u_ctrl → Request FSM | `req_valid`, `req_addr[31:0]`, `req_len[31:0]` (byte), `req_dst_waddr[12:0]`; ngược lại `req_ready`, `dma_done` (pulse), `dma_err` (pulse), `dma_err_code[2:0]` | valid/ready |
-| LOAD | Request FSM → u_legal | `leg_load` (pulse), `leg_src[31:0]`, `leg_total_beats[29:0]`, `leg_abort` (pulse) | load pulse |
+| LOAD | Request FSM → u_legal | `leg_load` (pulse), `leg_addr[31:0]`, `leg_total_beats[29:0]`, `leg_abort` (pulse) | load pulse |
 | BST | u_legal → u_ar | `bst_valid`, `bst_addr[31:0]`, `bst_beats[4:0]`, `bst_last`; ngược lại `bst_ready` | valid/ready |
-| PUSH | u_ar → u_info | `push`, `push_beats[4:0]`, `push_last`; ngược lại `full` | FIFO push |
+| PUSH | u_ar → u_info | `push`, `push_last`; ngược lại `full` | FIFO push |
 | ar_done | u_ar → Request FSM | `ar_done` (mức) | 1 tín hiệu |
-| POP | u_r → u_info | `pop`; ngược lại `empty`, `head_beats[4:0]`, `head_last` | FIFO pop |
+| POP | u_r → u_info | `pop`; ngược lại `empty`, `head_last` | FIFO pop |
 | RST | u_r → Request FSM | `r_idle` (mức), `r_err` (pulse), `r_err_code[2:0]` | status |
 | BEAT | u_r → u_wr | `beat_valid`, `beat_data[31:0]`, `beat_last`; ngược lại `beat_ready` | valid/ready |
-| WLD | Request FSM → u_wr | `wr_load` (pulse), `wr_dst[12:0]`, `wr_len_words[12:0]`; ngược lại `wr_bank_ready` (mức), `wr_last_done` (pulse) | load/done |
+| WLD | Request FSM → u_wr | `wr_load` (pulse), `wr_abort` (pulse, Q4), `wr_dst[12:0]`; ngược lại `wr_bank_ready` (mức), `wr_last_done` (pulse) | load/done |
 | AXAR | u_ar → DRAM | `ARADDR[31:0]`, `ARLEN[7:0]`, `ARSIZE[2:0]`, `ARBURST[1:0]`, `ARID`, `ARVALID`; ngược lại `ARREADY` | AXI4 AR |
 | AXR | DRAM → u_r | `RDATA[31:0]`, `RRESP[1:0]`, `RLAST`, `RID`, `RVALID`; ngược lại `RREADY` | AXI4 R |
-| BWR | u_wr → u_bram_pp | `we`, `waddr[12:0]`, `din[255:0]`; ngược lại `wr_ready` (mức), `wr_done` (pulse) | cổng ghi BRAM |
-| CLK | ngoài → mọi khối | `clk`, `rst` | clock/reset |
+| BWR | u_wr → u_bram_pp | `we`, `waddr[12:0]`, `din[255:0]`; ngược lại `wr_ready` (mức). `wr_done` là output của bram_pp, không nối vào DMA | cổng ghi BRAM |
+| CLK | ngoài → mọi khối | `i_clk_core`, `i_rst_n_core` (đồng bộ, mức thấp) | clock/reset |
 
 > Ghi chú tên: hình dùng `RST` cho bus "read status" từ u_r. Dễ nhầm với reset (`rst` trong CLK). Nếu bạn muốn đổi thành `RSTS` hay `RSTAT` thì tôi sửa cả hai file.
 
 ---
 
-## 2. Request FSM (FG of dma_rd)
+## 2. Request FSM (m_dma_fsm)
 
 **Mục đích:** nhận 1 lệnh từ u_ctrl, kiểm tra, nạp u_legal và u_wr, chờ xong, báo done/err. Đây là logic riêng nằm trong `dma_rd`, không phải module con.
 
@@ -76,12 +107,12 @@ Mũi tên chỉ từ bên chủ động (initiator) sang bên bị động; tín
 |---|---|---|
 | IDLE | `req_ready = 1` | `req_valid && req_ready`: chụp `req_addr/len/dst_waddr` vào thanh ghi → CHECK |
 | CHECK | Kiểm A7 và `dst_waddr + len/32 ≤ 6144` | Sai → ERR (mã 1 = CFG); đúng → WAIT_RDY |
-| WAIT_RDY | Chờ `wr_bank_ready = 1` | → phát `leg_load` và `wr_load` cùng 1 chu kỳ → RUN |
+| WAIT_RDY | Chờ `wr_bank_ready = 1` | → RUN; `leg_load` và `wr_load` là pulse qua thanh ghi, cùng ra ở chu kỳ RUN đầu (Q9) |
 | RUN | u_ar và u_r chạy song song | `wr_last_done` → FLUSH; `r_err` → phát `leg_abort`, lưu mã lỗi → FLUSH |
 | FLUSH | Chờ `ar_done && r_idle` (đã có lỗi) hoặc `ar_done && r_idle && đã thấy wr_last_done` | → DONE hoặc ERR |
 | DONE / ERR | Phát `dma_done` hoặc `dma_err` 1 chu kỳ, `dma_err_code` giữ đến lệnh sau | → IDLE |
 
-Mã lỗi: 1 = cấu hình sai, 2 = SLVERR, 3 = DECERR, 4 = RLAST sai (giống main.tex).
+Mã lỗi: 1 = cấu hình sai, 2 = SLVERR, 3 = DECERR. (Mã 4 = RLAST sai của main.tex đã bỏ, R2.)
 
 ### Tín hiệu
 
@@ -92,10 +123,10 @@ Mã lỗi: 1 = cấu hình sai, 2 = SLVERR, 3 = DECERR, 4 = RLAST sai (giống m
 | `dma_done`, `dma_err` | out | 1, 1 (pulse) | REQ |
 | `dma_err_code` | out | 3 | REQ |
 | `leg_load`, `leg_abort` | out | 1, 1 (pulse) | LOAD |
-| `leg_src`, `leg_total_beats` | out | 32, 30 | LOAD |
+| `leg_addr`, `leg_total_beats` | out | 32, 30 | LOAD |
 | `ar_done` | in | 1 | ar_done |
 | `r_idle`, `r_err`, `r_err_code` | in | 1, 1, 3 | RST |
-| `wr_load`, `wr_dst`, `wr_len_words` | out | 1, 13, 13 | WLD |
+| `wr_load`, `wr_abort`, `wr_dst` | out | 1, 1, 13 | WLD |
 | `wr_bank_ready`, `wr_last_done` | in | 1, 1 | WLD |
 
 ### Lỗi hay gặp
@@ -110,7 +141,7 @@ Thay u_legal, u_ar, u_r, u_wr bằng mô hình giả: `ar_done` lên sau N chu k
 
 ---
 
-## 3. u_legal (burst_legalizer)
+## 3. u_legal (m_dma_legal)
 
 **Mục đích:** biến 1 lệnh (addr, total_beats) thành chuỗi burst hợp luật: mỗi burst ≤ 16 beat và **không vượt biên 4 KB**.
 
@@ -129,7 +160,7 @@ Ví dụ: addr = 0x0FF8, còn 100 beat → to_4k = 2 → burst 2 beat, burst sau
 | Tên | Hướng | Rộng | Bus |
 |---|---|---|---|
 | `leg_load`, `leg_abort` | in | 1, 1 | LOAD |
-| `leg_src` | in | 32 | LOAD |
+| `leg_addr` | in | 32 | LOAD |
 | `leg_total_beats` | in | 30 (= len >> 2) | LOAD |
 | `bst_valid` | out | 1 | BST |
 | `bst_ready` | in | 1 | BST |
@@ -151,14 +182,14 @@ Không cần AXI. TB phát `leg_load` với (addr, len) ngẫu nhiên + các gó
 
 ---
 
-## 4. u_ar (ar_fsm)
+## 4. u_ar (m_dma_ar)
 
 **Mục đích:** phát burst lên kênh AR, ghi thông tin burst vào u_info. Tham số `MAX_OUT` = độ sâu u_info (số burst đang bay); **v0 = 1** (y hệt `AR → R → AR`), sau tăng 2–8 không sửa cấu trúc.
 
 | State | Làm gì | Chuyển |
 |---|---|---|
 | AR_IDLE | `ARVALID=0`; `ar_done = !bst_valid` | `bst_valid && !full` → chụp `bst_*` vào thanh ghi → AR_REQ |
-| AR_REQ | `ARVALID=1`, `ARADDR`, `ARLEN = beats-1` từ thanh ghi, **giữ nguyên** | `ARREADY=1`: `push=1`, `bst_ready=1` → AR_IDLE |
+| AR_REQ | `ARVALID=1`, `ARADDR`, `ARLEN = beats-1` từ thanh ghi, **giữ nguyên** | `ARREADY=1`: `push=1` (ghi `push_last` vào u_info), `bst_ready=1` → AR_IDLE |
 
 Hằng: `ARSIZE=3'b010`, `ARBURST=2'b01`, `ARID=0`, `ARLOCK=0`, `ARCACHE=4'b0011`, `ARPROT=3'b000`, `ARQOS=0`.
 
@@ -168,11 +199,11 @@ Hằng: `ARSIZE=3'b010`, `ARBURST=2'b01`, `ARID=0`, `ARLOCK=0`, `ARCACHE=4'b0011
 |---|---|---|---|
 | `bst_valid`, `bst_ready` | in, out | 1, 1 | BST |
 | `bst_addr`, `bst_beats`, `bst_last` | in | 32, 5, 1 | BST |
-| `push`, `push_beats`, `push_last` | out | 1, 5, 1 | PUSH |
+| `push`, `push_last` | out | 1, 1 | PUSH |
 | `full` | in | 1 | PUSH |
 | `ar_done` | out | 1 | ar_done |
-| `M_AXI_ARADDR`, `ARLEN`, `ARSIZE`, `ARBURST`, `ARID` | out | 32, 8, 3, 2, 1 | AXAR |
-| `M_AXI_ARVALID`, `ARREADY` | out, in | 1, 1 | AXAR |
+| `o_axi_araddr`, `arlen`, `arsize`, `arburst`, `arid` | out | 32, 8, 3, 2, 1 | AXAR |
+| `o_axi_arvalid`, `i_axi_arready` | out, in | 1, 1 | AXAR |
 
 ### Lỗi hay gặp
 1. Đổi ARADDR/ARLEN khi ARVALID=1 mà chưa có ARREADY (vi phạm AXI).
@@ -182,84 +213,88 @@ Hằng: `ARSIZE=3'b010`, `ARBURST=2'b01`, `ARID=0`, `ARLOCK=0`, `ARCACHE=4'b0011
 
 ---
 
-## 5. u_info (burst_info_fifo)
+## 5. u_info (m_dma_info)
 
-FIFO nhỏ độ sâu `MAX_OUT`, mỗi entry `{beats[4:0], last}` (6 bit). Với MAX_OUT = 1 chỉ là 1 thanh ghi + cờ valid. Số entry = số burst đang bay, nên không cần bộ đếm `out_cnt` riêng.
+FIFO nhỏ độ sâu `MAX_OUT`, mỗi entry chỉ là cờ `last` (1 bit, R2: không còn `beats` vì u_r kết thúc burst theo RLAST). Với MAX_OUT = 1 chỉ là 1 FF + bộ đếm entry. Số entry = số burst đang bay, nên không cần bộ đếm `out_cnt` riêng.
 
 | Tên | Hướng | Rộng | Bus |
 |---|---|---|---|
-| `push`, `push_beats`, `push_last` | in | 1, 5, 1 | PUSH |
+| `push`, `push_last` | in | 1, 1 | PUSH |
 | `full` | out | 1 | PUSH |
 | `pop` | in | 1 | POP |
-| `empty`, `head_beats`, `head_last` | out | 1, 5, 1 | POP |
+| `empty`, `head_last` | out | 1, 1 | POP |
 
 Lỗi hay gặp: push và pop cùng chu kỳ khi đầy/rỗng (với MAX_OUT = 1: push lúc đang có entry và pop cùng chu kỳ phải được phép, nếu không mất 1 chu kỳ mỗi burst; hoặc chấp nhận và ghi chú).
 
 ---
 
-## 6. u_r (r_fsm)
+## 6. u_r (m_dma_r)
 
-**Mục đích:** nhận dữ liệu kênh R, kiểm RLAST/RRESP, đẩy beat sang u_wr, pop u_info ở cuối mỗi burst.
+**Mục đích:** nhận dữ liệu kênh R, kiểm RRESP, đẩy beat sang u_wr, pop u_info ở cuối mỗi burst (beat có RLAST).
+
+Không có state IDLE (2026-11-15): khi u_info rỗng, RECV giữ `RREADY = 0` và báo `r_idle`; có burst là nhận ngay, các burst nối liền nhau không mất chu kỳ.
 
 | State | Làm gì | Chuyển |
 |---|---|---|
-| R_IDLE | `RREADY=0`; `r_idle = empty` | `!empty` → nạp `exp_beats = head_beats` → R_RECV |
-| R_RECV | `RREADY = beat_ready`; `beat_valid = RVALID`; đếm beat mỗi handshake | Beat cuối (`cnt == exp_beats-1`): kiểm `RLAST==1`, `pop=1`; → R_IDLE |
-| R_DRAIN | lỗi: `RREADY=1`, `beat_valid=0` (**vứt** data), vẫn đếm beat và pop | u_info rỗng → R_IDLE (`r_idle` lên lại) |
+| R_RECV | `RREADY = beat_ready && !empty`; `beat_valid = RVALID && !empty && RRESP == OKAY` (beat lỗi không đẩy, Q8); `r_idle = empty`; beat có `RLAST=1` → `pop=1` | beat lỗi → R_DRAIN |
+| R_DRAIN | lỗi: `RREADY = !empty`, `beat_valid=0` (**vứt** data), pop ở mỗi beat có RLAST | u_info rỗng → R_RECV (`r_idle` lên lại) |
 
 Kiểm tra trong R_RECV:
-- `RRESP != OKAY` → `r_err` pulse + `r_err_code` (2 hoặc 3), sang R_DRAIN.
-- `RLAST` đến sớm hoặc không đến ở beat cuối → `r_err` mã 4, R_DRAIN.
-- `RID` phải = 0 (v0 chỉ 1 ID nên chỉ là sanity check).
-- `beat_last = head_last && (beat cuối của burst)`.
+- `RRESP != OKAY` → `r_err` pulse tổ hợp cùng chu kỳ (Q7) + `r_err_code` (2 = SLVERR hoặc EXOKAY, 3 = DECERR), sang R_DRAIN.
+- `RLAST`: **không kiểm**, không đếm beat (R2). Burst hết ở beat có `RLAST = 1`.
+- `RID`: v0 chỉ 1 ID (= 0), RTL không kiểm (Q8).
+- `beat_last = head_last && RLAST`.
 
 | Tên | Hướng | Rộng | Bus |
 |---|---|---|---|
-| `M_AXI_RDATA` | in | 32 | AXR |
-| `M_AXI_RRESP` | in | 2 | AXR |
-| `M_AXI_RLAST`, `RID` | in | 1, 1 | AXR |
-| `M_AXI_RVALID`, `RREADY` | in, out | 1, 1 | AXR |
+| `i_axi_rdata` | in | 32 | AXR |
+| `i_axi_rresp` | in | 2 | AXR |
+| `i_axi_rlast`, `i_axi_rid` | in | 1, 1 | AXR |
+| `i_axi_rvalid`, `o_axi_rready` | in, out | 1, 1 | AXR |
 | `pop` | out | 1 | POP |
-| `empty`, `head_beats`, `head_last` | in | 1, 5, 1 | POP |
+| `empty`, `head_last` | in | 1, 1 | POP |
 | `beat_valid`, `beat_ready` | out, in | 1, 1 | BEAT |
 | `beat_data`, `beat_last` | out | 32, 1 | BEAT |
 | `r_idle`, `r_err`, `r_err_code` | out | 1, 1, 3 | RST |
 
 ### Lỗi hay gặp
 1. Gặp lỗi RRESP là dừng nhận R luôn → slave treo vì còn beat chưa nhận. AXI không cho hủy burst, phải **drain**.
-2. Tin RLAST tuyệt đối mà không đếm beat → slave lỗi làm writer lệch.
+2. Slave đặt RLAST sai (vi phạm A3.2.2) → burst lệch, DMA có thể treo hoặc ghi lệch. Thiết kế chấp nhận (R2), phần mềm lo bằng watchdog (§11).
 3. RREADY reset về 1.
 4. Vẫn đẩy `beat_valid` khi đang drain → u_wr ghi rác vào bram_pp.
 
 ### Cách test riêng (u_ar + u_info + u_r chung)
-Thay u_legal bằng TB đẩy burst cố định, thay u_wr bằng sink có `beat_ready` ngẫu nhiên. Nối **AXI4 burst memory model** (handoff §7): ARREADY trễ ngẫu nhiên, độ trễ beat đầu 5–30 chu kỳ, RVALID có khoảng hở. Data = địa chỉ. Bơm lỗi: SLVERR ở 1 beat giữa burst; RLAST sớm 1 beat. Assertion: payload AR ổn định khi `ARVALID && !ARREADY`; số entry u_info ≤ MAX_OUT; tổng beat ra = tổng beat yêu cầu.
+Thay u_legal bằng TB đẩy burst cố định, thay u_wr bằng sink có `beat_ready` ngẫu nhiên. Nối **AXI4 burst memory model** (handoff §7): ARREADY trễ ngẫu nhiên, độ trễ beat đầu 5–30 chu kỳ, RVALID có khoảng hở. Data = địa chỉ. Bơm lỗi: SLVERR / DECERR / EXOKAY ở 1 beat giữa burst (không bơm RLAST sai, R2). Assertion: payload AR ổn định khi `ARVALID && !ARREADY`; số entry u_info ≤ MAX_OUT; tổng beat ra = tổng beat yêu cầu.
 
 ---
 
-## 7. u_wr (bram_writer, packer 32 → 256)
+## 7. u_wr (m_dma_wr, packer 32 → 256)
 
 **Mục đích:** gom 8 beat 32-bit thành 1 từ 256-bit, ghi vào bram_pp, tăng waddr. Writer **không quan tâm biên burst**: nó chỉ đếm beat, nên burst 2 beat do cắt 4 KB vẫn gom đúng.
 
 - `wr_bank_ready = wr_ready` (đi thẳng từ bram_pp lên Request FSM, A10).
 - `idx` đếm 0..7. Beat `idx < 7`: lưu vào `buf[32*idx +: 32]`.
-- Beat `idx == 7`: `we=1`, `din = {beat_data, buf[223:0]}`, `waddr = cur_waddr`, rồi `cur_waddr++`, `idx=0`.
-- `cur_waddr` bắt đầu ở `wr_dst`. Đếm `words_written`, so với `wr_len_words`.
-- `beat_ready = 1` (giả định A5).
-- `wr_done` của bram_pp: khi transfer đúng 6144 từ thì nó pulse ngay sau từ cuối. Dùng làm cross-check.
+- Beat `idx == 7`: chu kỳ sau ra `we=1`, `din = {beat_data, buf[223:0]}`, `waddr = cur_waddr` (qua thanh ghi, Q3), rồi `cur_waddr++`, `idx=0`.
+- `cur_waddr` bắt đầu ở `wr_dst`. `waddr` là địa chỉ **theo từ** (1 từ = 256 bit = 32 byte), không phải theo byte.
+- **Kết thúc theo `beat_last` (Q6, 2026-11-16).** Beat nhận được có `beat_last = 1` là beat cuối của lệnh → W_IDLE. Vì CHECK bắt `len` là bội 32 byte, beat đó luôn là beat `idx = 7`, nên từ cuối được ghi bình thường và `wr_last_done` ra cùng `we` của từ đó. Không có bộ đếm từ.
+  - Nếu `beat_last` tới giữa từ (về logic không xảy ra; chỉ khi RTL có bug hoặc lỗi phần cứng ngẫu nhiên): bỏ từ đang gom, về W_IDLE, **không** có `wr_last_done` → Request FSM đứng ở RUN, watchdog của phần mềm reset DMA (§11).
+- `beat_ready = 1` (giả định A5, Q5). `wr_abort` → W_IDLE, bỏ từ đang gom (Q4).
+- Đổi bank: **do bram_pp tự làm** khi thấy `we` ở word 6143 (2026-11-16). u_wr không phát và không nhận `wr_done`. Vì CHECK bắt `dst + len/32 ≤ 6144`, word 6143 luôn là word cuối của lệnh chứa nó; lệnh lỗi bị `wr_abort` nên không bao giờ ghi tới 6143.
+- **Việc của bram_pp (designer sửa):** `bram_pp.sv` hiện vẫn để `wr_done` là input và chưa compile được (`AW`/`DW`, thiếu `begin`/`end` trong `always_ff`).
 
 | State | Chuyển |
 |---|---|
 | W_IDLE | `wr_load` → nạp `cur_waddr = wr_dst`, `idx = 0` → W_PACK |
-| W_PACK | ghi như trên; từ cuối ghi xong → `wr_last_done=1` → W_IDLE |
+| W_PACK | ghi như trên; ưu tiên `wr_abort` > đủ từ > lưu beat. Beat có `beat_last` → W_IDLE; từ chứa nó ra kèm `wr_last_done = 1` |
 
 | Tên | Hướng | Rộng | Bus |
 |---|---|---|---|
-| `wr_load`, `wr_dst`, `wr_len_words` | in | 1, 13, 13 | WLD |
+| `wr_load`, `wr_abort`, `wr_dst` | in | 1, 1, 13 | WLD |
 | `wr_bank_ready`, `wr_last_done` | out | 1, 1 | WLD |
 | `beat_valid`, `beat_ready` | in, out | 1, 1 | BEAT |
 | `beat_data`, `beat_last` | in | 32, 1 | BEAT |
 | `we`, `waddr`, `din` | out | 1, 13, 256 | BWR |
-| `wr_ready`, `wr_done` | in | 1, 1 | BWR |
+| `wr_ready` | in | 1 | BWR |
 
 ### Lỗi hay gặp
 1. Ghi `din = buf` ở beat thứ 8 mà quên ghép beat hiện tại → thiếu 32 bit cao (hoặc lệch 1 beat).
@@ -270,7 +305,7 @@ Thay u_legal bằng TB đẩy burst cố định, thay u_wr bằng sink có `bea
 6. Nếu sau này `wr_ready` có thể rớt giữa chừng: phải hạ `beat_ready` (→ RREADY = 0) chứ không được bỏ beat.
 
 ### Cách test riêng
-TB đẩy beat với `beat_valid` ngẫu nhiên, data = số thứ tự beat. Mô hình BRAM trong TB chép lại mọi lần `we`. Kiểm: từ k = {beat 8k+7, …, beat 8k}; `waddr` tăng đều từ `wr_dst`; số lần `we` = `wr_len_words`; không có `we` khi `beat_valid=0`. Sau đó nối bram_pp thật để kiểm `wr_done` đến đúng sau từ 6143.
+TB đẩy beat với `beat_valid` ngẫu nhiên, data = số thứ tự beat. Mô hình BRAM trong TB chép lại mọi lần `we`. Kiểm: từ k = {beat 8k+7, …, beat 8k}; `waddr` tăng đều từ `wr_dst`; số lần `we` = số từ của lệnh (`len/32`); `wr_last_done` đi cùng `we` của từ chứa `beat_last`; không có `we` khi `beat_valid=0`. Sau đó nối bram_pp thật để kiểm bram_pp đổi bank đúng lúc ghi từ 6143.
 
 ---
 
@@ -281,12 +316,12 @@ TB đẩy beat với `beat_valid` ngẫu nhiên, data = số thứ tự beat. M�
 3. **u_r** + **u_wr**, test chung u_ar/u_info/u_r/u_wr với AXI slave model.
 4. **Request FSM** cuối cùng, ráp thành `dma_rd`.
 
-Test tích hợp: DRAM model nạp pattern, TB đóng vai u_ctrl gửi REQ với `req_addr = 0x0000_0FC0` (để có cắt 4 KB), `req_len = 196 608`. Kiểm 6144 từ trong bram_pp khớp pattern, `wr_done` pulse, `dma_done` đúng 1 chu kỳ.
+Test tích hợp: DRAM model nạp pattern, TB đóng vai u_ctrl gửi REQ với `req_addr = 0x0000_0FC0` (để có cắt 4 KB), `req_len = 196 608`. Kiểm 6144 từ trong bram_pp khớp pattern, bram_pp đổi bank (đánh dấu đầy) sau từ 6143, `dma_done` đúng 1 chu kỳ.
 
 ## 9. Chỗ cần CDC sau này
 1. **u_r ↔ u_wr** nếu AXI (MIG `ui_clk`) khác clock accelerator: chèn **async FIFO** ở bus BEAT (32 bit + last), `beat_ready = !fifo_full`. Đây cũng là chỗ sau này đổi sang AXI-Stream.
 2. **REQ** nếu u_ctrl khác clock u_dma: req/ack 4 pha hoặc async FIFO 1 entry.
-3. `wr_ready`/`wr_done` của bram_pp nếu bram_pp ở clock khác: 2-FF cho mức, toggle-sync cho pulse.
+3. `wr_ready` của bram_pp nếu bram_pp ở clock khác: 2-FF cho mức.
 
 ## 10. Ước lượng tài nguyên (ƯỚC LƯỢNG, chưa synth)
 
@@ -299,3 +334,38 @@ Test tích hợp: DRAM model nạp pattern, TB đóng vai u_ctrl gửi REQ với
 | **Tổng** | **~240** | **~440** |
 
 Để so: AMD AXI DMA v7.1 theo paper iDMA ~2745 LUT / 4738 FF (có cả write channel và SG, nên không so ngang được).
+
+---
+
+## 11. Xử lý lỗi: phần cứng lo gì, phần mềm lo gì (2026-11-16)
+
+Nguyên tắc: phần cứng chỉ làm những việc phần mềm **không làm kịp hoặc không làm an toàn được**: giữ AXI đúng giao thức, không treo, không ghi dữ liệu hỏng, không giao bank hỏng cho GEMM, báo đúng mã lỗi. Còn chạy lại, reset, sửa cấu hình, ghi log thì để phần mềm (u_ctrl / CPU) quyết định.
+
+| Mã | Lỗi | Phần cứng (DMA) làm | Phần mềm (u_ctrl / CPU) làm |
+|---|---|---|---|
+| 1 | CFG: lệnh sai (A7, vượt bank) | Từ chối ở CHECK, không phát AR, không ghi | Sửa `req_addr` / `req_len` / `req_dst_waddr`; chạy lại y nguyên thì vẫn lỗi |
+| 2 | SLVERR (cả EXOKAY) | Dừng phát AR mới (`leg_abort`), nhận và bỏ hết burst đang bay (DRAIN), không ghi beat lỗi và từ đang gom (`wr_abort`), báo mã | Kiểm tra vùng nhớ / quyền truy cập; có thể chạy lại 1 lần |
+| 3 | DECERR | Như mã 2 | Địa chỉ không thuộc slave nào: sửa cấu hình, không chạy lại |
+| – | Lỗi "không thể xảy ra về logic" hoặc slave vi phạm giao thức (ví dụ `beat_last` lệch biên từ Q6, RLAST sai R2) | Không có mã riêng, không kiểm trong phần cứng | Watchdog (timeout, xem dưới) thấy DMA treo → reset, chạy lại; vẫn lỗi thì bỏ lệnh và báo lên tầng trên |
+
+Chung cho mọi mã:
+- Sau ERR, DMA tự về IDLE (`req_ready = 1`), **không cần reset** để nhận lệnh mới.
+- Dữ liệu đã ghi dở của lệnh lỗi trong bank coi là rác; lệnh chạy lại sẽ ghi đè.
+- **Bank lấp bằng nhiều lệnh:** bram_pp đổi bank khi ghi word 6143. Nếu một lệnh ở giữa bank bị lỗi, phần mềm phải **chạy lại lệnh đó trước** lệnh ghi tới word 6143; nếu không, GEMM nhận bank có một vùng rác.
+
+### Việc còn mở: bank dùng không hết (designer xử lý sau)
+
+Tùy input / cấu hình MHSA, có thể có bank chỉ dùng một phần (chunk cuối nhỏ hơn 6144 từ). Khi đó không có lần ghi word 6143 nên bram_pp không bao giờ đánh dấu bank đầy. Cần thêm cách "commit bank" do **u_ctrl** phát (chỉ u_ctrl biết dữ liệu đã đủ), ví dụ một pulse `bank_commit` vào bram_pp, OR với điều kiện `we` ở word 6143. Đây là việc của bram_pp / u_ctrl, DMA không đổi.
+
+### Việc còn mở: timeout (designer xử lý sau)
+
+Vấn đề: nếu DRAM / interconnect không bao giờ trả `ARREADY` hoặc `RVALID`, hoặc có lỗi "không thể xảy ra" làm thiếu `wr_last_done` (Q6), DMA kẹt ở RUN hoặc FLUSH mãi, `req_ready = 0`, u_ctrl không gửi được lệnh mới. Hiện ngoài reset thì không có lối ra. Vì đã bỏ mã 5, **cần ít nhất một cơ chế timeout** (a, b hoặc c).
+
+Các hướng để chọn:
+
+| | Đặt ở đâu | Làm gì | Ghi chú |
+|---|---|---|---|
+| a | Phần mềm / u_ctrl (watchdog) | Đếm thời gian từ lúc gửi REQ; quá hạn → reset DMA | Phần cứng DMA không đổi |
+| b | Trong DMA | Bộ đếm chu kỳ không có handshake AR / R trong RUN, FLUSH; quá ngưỡng (tham số) → mã lỗi 6 (TIMEOUT) | AXI không cho bỏ burst đang bay (A3.4.1), nên sau timeout vẫn phải reset DMA và phía interconnect, hoặc cần (c) |
+| c | Interconnect (firewall / timeout ở cổng slave) | Cắt slave không trả lời, tự trả SLVERR cho các giao dịch đang treo | DMA nhận SLVERR → mã 2 như bình thường, không cần sửa DMA |
+

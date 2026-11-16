@@ -25,7 +25,6 @@
   ],
   ["PUSH",
     {"name":"push","wave":"x0..10..10"},
-    {"name":"push_beats","wave":"x..=....=.","data":["2","2"]},
     {"name":"push_last","wave":"x..0....1."},
     {"name":"full","wave":"x0...1.0.1"}
   ],
@@ -35,7 +34,6 @@
   ],
   ["POP",
     {"name":"pop","wave":"0......10."},
-    {"name":"head_beats","wave":"xxxxx=..x=","data":["2","2"]},
     {"name":"head_last","wave":"xxxxx0...1"}
   ],
   {"name":"ar_done","wave":"x10......1"}
